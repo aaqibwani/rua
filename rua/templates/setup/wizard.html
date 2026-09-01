@@ -211,9 +211,15 @@
       </div>
 
       <div class="card__foot">
-        <button type="submit" class="btn btn--text" name="action" value="sample">Explore with sample data</button>
+        {# formnovalidate on both: neither button needs this step's fields, and
+           without it the browser blocks the submit and focuses the first empty
+           required input — so they silently do nothing on a step you have not
+           filled in yet. #}
+        <button type="submit" class="btn btn--text" name="action" value="sample"
+                formnovalidate>Explore with sample data</button>
         <div class="spacer"></div>
         <button type="submit" class="btn btn--outlined" name="action" value="back"
+                formnovalidate
                 {% if state.step == 1 %}disabled{% endif %}>Back</button>
         <button type="submit" class="btn btn--contained" name="action" value="next"
                 {% if not can_advance %}disabled{% endif %}>{{ next_label }}</button>

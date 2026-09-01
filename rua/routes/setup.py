@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from rua import __version__, wizard
+from rua import settings_store as store
 from rua.db import get_session
 from rua.logging import get_logger
 from rua.paths import TEMPLATES_DIR
@@ -220,6 +221,16 @@ def setup_submit(
 
     error: str | None = None
 
+    # "Explore with sample data" is a detour, not a submission: it must work from
+    # any step without the current step being valid or even filled in. Persisting
+    # inputs here would make step 1 raise "set a password" and swallow the action
+    # before it ever ran.
+    if action == "sample":
+        seed_demo(session)
+        store.set_bool(session, store.SETUP_DEMO_MODE, True)
+        log.info("demo_mode_enabled", from_step=step)
+        return RedirectResponse("/", status_code=303)
+
     # Persist this step's inputs before doing anything else, so a failure below
     # still leaves the operator's typing on disk.
     try:
@@ -251,13 +262,6 @@ def setup_submit(
         elif action == "test_mailbox":
             result = wizard.run_mailbox_test(session)
             error = result.error if not result.ok else None
-        elif action == "sample":
-            created, updated = seed_demo(session)
-            log.info("demo_data_seeded_from_wizard", created=created, updated=updated)
-            error = (
-                f"Loaded {created + updated} sample domains. The dashboard that renders "
-                "them arrives in a later milestone; setup is unaffected."
-            )
         elif action == "back":
             wizard.save_step(session, step - 1)
         elif action == "next":

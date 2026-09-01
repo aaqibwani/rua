@@ -35,6 +35,13 @@ SETUP_STEP = "setup.step"
 SETUP_COMPLETE = "setup.complete"
 SETUP_SCOPING_MODE = "setup.scoping_mode"  # "rbac" | "policy"
 
+# Set by "Explore with sample data". Lets the operator browse the seeded dataset
+# before setup is finished — which is the whole point of the button — without
+# claiming setup is done. Ingestion stays unconfigured, the wizard stays open,
+# and the PINNED constraint is untouched: this flag never satisfies
+# SETUP_COMPLETE, and only complete_setup() can set that.
+SETUP_DEMO_MODE = "setup.demo_mode"
+
 GRAPH_TENANT_ID = "graph.tenant_id"
 GRAPH_CLIENT_ID = "graph.client_id"
 GRAPH_CLIENT_SECRET = "graph.client_secret"
@@ -157,6 +164,15 @@ def is_setup_complete(session: Session) -> bool:
     until this is true, and the wizard is closed once it is.
     """
     return get_bool(session, SETUP_COMPLETE)
+
+
+def is_demo_mode(session: Session) -> bool:
+    """Whether the sample dataset has been loaded for browsing.
+
+    Distinct from setup being complete, and deliberately so: demo mode opens the
+    dashboard, it does not configure ingestion or satisfy any verification.
+    """
+    return get_bool(session, SETUP_DEMO_MODE)
 
 
 def graph_generation(session: Session) -> int:

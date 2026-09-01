@@ -1,33 +1,77 @@
 {% extends "base.html" %}
 {% block title %}Rua{% endblock %}
-{% block subtitle %}Setup complete{% endblock %}
+{% block subtitle %}{% if demo_mode %}Sample data{% else %}Setup complete{% endif %}{% endblock %}
 
 {% block content %}
 {#
-  A holding page. The designed screens — the four dashboard tabs and the day-zero
-  waiting state — arrive in milestones 7 and 8. This exists so that finishing the
-  wizard lands somewhere honest rather than on a 404.
+  A holding page. The four dashboard tabs (milestone 7) and the day-zero waiting
+  state (milestone 8) replace it. What it does show is real: the DNS-derived
+  posture counts, which are the half of the product that works before a single
+  report arrives.
 #}
 <div class="wizard" style="grid-template-columns: minmax(0, 1fr);">
   <section class="card">
     <div class="card__head">
-      <div class="card__kicker">Ingestion configured</div>
-      <h1 class="card__title">Setup is complete.</h1>
-      <div class="card__blurb">
-        The Graph connection and the report mailbox both verified. Ingestion runs on
-        its schedule from here.
-      </div>
+      {% if demo_mode %}
+        <div class="card__kicker">Sample data</div>
+        <h1 class="card__title">{{ total_domains }} demo domains loaded.</h1>
+        <div class="card__blurb">
+          Nothing here came from your tenant. Setup is not finished and ingestion is
+          not configured — this is the seeded dataset, so you can see the shape of
+          the thing before committing to it.
+        </div>
+      {% else %}
+        <div class="card__kicker">Ingestion configured</div>
+        <h1 class="card__title">Setup is complete.</h1>
+        <div class="card__blurb">
+          The Graph connection and the report mailbox both verified. Ingestion runs
+          on its schedule from here.
+        </div>
+      {% endif %}
     </div>
+
     <div class="card__body">
-      <div class="alert alert--info">
-        The dashboard and the day-zero waiting page are not built yet. This page is a
-        placeholder and will be replaced by them.
+      {% if total_domains %}
+      <div class="steps" style="max-width:none;">
+        <div class="facts">
+          <div class="facts__row">
+            <div class="facts__k">Protected</div>
+            <div class="facts__v" style="color:var(--ok-fg); font-weight:700;">{{ counts.protected }}</div>
+          </div>
+          <div class="facts__row">
+            <div class="facts__k">Partial</div>
+            <div class="facts__v" style="color:var(--warn-fg); font-weight:700;">{{ counts.partial }}</div>
+          </div>
+          <div class="facts__row">
+            <div class="facts__k">Gaps</div>
+            <div class="facts__v" style="color:var(--gap-fg); font-weight:700;">{{ counts.gaps }}</div>
+          </div>
+          <div class="facts__row">
+            <div class="facts__k">Not applicable</div>
+            <div class="facts__v">{{ counts.na }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="field__note" style="margin-top:12px;">
+        All four counts come from DNS alone. Volume, pass rates and TLS reasons need
+        reports, which is what the rest of the product is for.
       </div>
       <br>
-      <div class="field__note">
-        Aggregate reports arrive on the receiver's schedule. Expect the first data
-        within 24 hours, and a full picture after about 72.
+      {% endif %}
+
+      <div class="alert alert--info">
+        The Domains table, Overview, Sources and TLS tabs are not built yet. This page
+        stands in for them.
       </div>
+
+      {% if demo_mode %}
+      <br>
+      <div class="row">
+        <a class="btn btn--contained" href="{{ url_for('setup_root') }}"
+           style="text-decoration:none; display:inline-flex; align-items:center;">Finish setup</a>
+        <div class="field__note">Ingestion will not start until you do.</div>
+      </div>
+      {% endif %}
     </div>
   </section>
 </div>

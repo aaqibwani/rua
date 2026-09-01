@@ -14,7 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from rua.db import session_scope
 from rua.logging import get_logger
-from rua.settings_store import is_setup_complete
+from rua.settings_store import is_demo_mode, is_setup_complete
 
 log = get_logger(__name__)
 
@@ -35,25 +35,30 @@ class SetupGateMiddleware(BaseHTTPMiddleware):
         # a fresh deployment has one user clicking through five steps.
         self._complete = False
 
-    def _setup_complete(self) -> bool | None:
-        """True, False, or None when the answer is genuinely unknown.
+    def _state(self) -> tuple[bool, bool] | None:
+        """``(setup_complete, demo_mode)``, or None when the answer is unknown.
 
         None matters. Treating a database failure as "complete" sealed the wizard
         and served the post-setup page, telling an operator whose database was
         down that setup had finished. Treating it as "incomplete" would be just
         as wrong on a configured deployment. Neither is a fact, so the caller
         says so instead of guessing.
+
+        Only ``complete`` is latched. Demo mode is turned on mid-session by the
+        wizard's "Explore with sample data", so caching it would leave the gate
+        redirecting the very request that just enabled it.
         """
         if self._complete:
-            return True
+            return True, False
         try:
             with session_scope() as session:
                 complete = is_setup_complete(session)
+                demo = is_demo_mode(session)
         except Exception as exc:
             log.error("setup_gate_check_failed", error_type=type(exc).__name__)
             return None
         self._complete = complete
-        return complete
+        return complete, demo
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -63,9 +68,9 @@ class SetupGateMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         in_wizard = path == "/setup" or path.startswith("/setup/")
-        complete = self._setup_complete()
+        state = self._state()
 
-        if complete is None:
+        if state is None:
             # /healthz is already exempt above and reports the real cause.
             return PlainTextResponse(
                 "Rua cannot reach its database, so it cannot tell whether setup is "
@@ -73,12 +78,17 @@ class SetupGateMiddleware(BaseHTTPMiddleware):
                 status_code=503,
             )
 
-        if not complete:
-            if not in_wizard:
-                return RedirectResponse("/setup", status_code=303)
-        elif in_wizard:
-            # PINNED: the wizard cannot be re-entered to reconfigure ingestion
-            # behind the checks. Credential changes belong in Settings.
-            return RedirectResponse("/", status_code=303)
+        complete, demo = state
+
+        if complete:
+            if in_wizard:
+                # PINNED: the wizard cannot be re-entered to reconfigure ingestion
+                # behind the checks. Credential changes belong in Settings.
+                return RedirectResponse("/", status_code=303)
+        elif not demo and not in_wizard:
+            return RedirectResponse("/setup", status_code=303)
+        # Demo mode with setup unfinished: both the dashboard and the wizard stay
+        # open, because the operator is meant to look around and then go back and
+        # finish. Nothing here marks setup complete.
 
         return await call_next(request)

@@ -523,3 +523,87 @@ def test_the_whole_wizard_completes_in_the_order_an_operator_walks_it(
     assert response.status_code == 303
     assert response.headers["location"] == "/"
     assert store.is_setup_complete(clean_db) is True
+
+
+# ─── "Explore with sample data" ──────────────────────────────────────────────
+
+
+def test_footer_buttons_bypass_field_validation(client) -> None:
+    """Regression: both were dead on step 1.
+
+    They are submit buttons in the same form as the required name, email and
+    password inputs, so without formnovalidate the browser refuses to submit and
+    focuses the first empty field — the button appears clickable and does nothing.
+    """
+    body = client.get("/setup/1").text
+
+    for value in ("sample", "back"):
+        marker = f'name="action" value="{value}"'
+        assert marker in body
+        # The attribute must be on the same tag, not merely present in the page.
+        tag_start = body.index(marker)
+        tag = body[body.rindex("<button", 0, tag_start) : body.index(">", tag_start) + 1]
+        assert "formnovalidate" in tag, f"the {value} button would be blocked by validation"
+
+
+def test_explore_with_sample_data_seeds_and_opens_the_dashboard(client, clean_db) -> None:
+    token = _csrf(client)
+
+    response = client.post("/setup", data={"step": "1", "action": "sample", "csrf_token": token})
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert store.is_demo_mode(clean_db) is True
+
+    from sqlalchemy import func, select
+
+    from rua.models import Domain
+
+    assert clean_db.scalar(select(func.count()).select_from(Domain)) == 60
+
+
+def test_demo_mode_does_not_complete_setup(client, clean_db) -> None:
+    """PINNED: only both verifications passing can finish setup.
+
+    Browsing sample data must not be a way around that.
+    """
+    client.post("/setup", data={"step": "1", "action": "sample", "csrf_token": _csrf(client)})
+
+    assert store.is_setup_complete(clean_db) is False
+    assert wizard.load_state(clean_db).graph_ok is False
+    assert wizard.load_state(clean_db).mailbox_ok is False
+
+
+def test_demo_mode_opens_the_dashboard_without_finishing_setup(client, clean_db) -> None:
+    client.post("/setup", data={"step": "1", "action": "sample", "csrf_token": _csrf(client)})
+
+    response = client.get("/")
+
+    assert response.status_code == 200, "the setup gate must let demo mode through"
+    assert "demo domains loaded" in response.text
+    assert "Finish setup" in response.text
+
+
+def test_the_wizard_stays_reachable_in_demo_mode(client, clean_db) -> None:
+    """Exploring is a detour, not an exit — setup still has to be finished."""
+    client.post("/setup", data={"step": "1", "action": "sample", "csrf_token": _csrf(client)})
+
+    assert client.get("/setup/1").status_code == 200
+
+
+def test_home_reports_the_dns_posture_buckets(client, clean_db) -> None:
+    """The counts are real and available before any report arrives."""
+    from rua.queries import domain_posture_counts
+    from rua.seed import seed_demo
+
+    seed_demo(clean_db)
+    clean_db.commit()
+    counts = domain_posture_counts(clean_db)
+
+    assert sum(counts.values()) == 60
+    assert counts["na"] == 1, "the tenant row is the only not-applicable domain"
+    assert counts["gaps"] > 0 and counts["protected"] > 0
+
+
+def test_without_demo_mode_the_gate_still_redirects(client) -> None:
+    assert client.get("/").status_code == 303
