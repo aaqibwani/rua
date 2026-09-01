@@ -1,25 +1,30 @@
 # Keep the build context small and keep secrets out of the image.
 # The Dockerfile does `COPY . .`, so anything not excluded here ships.
+#
+# Patterns are matched against the whole path from the context root, so a bare
+# `__pycache__/` only excludes one at the top level. Everything that can appear
+# at any depth needs an explicit `**/` prefix.
 
 .env
 .env.*
 !.env.example
 
 .git
+**/.git
 .github
 .gitignore
 
-__pycache__/
-*.py[cod]
-*.egg-info/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
 build/
 dist/
-.venv/
-venv/
+**/.venv/
+**/venv/
 
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
 .coverage
 htmlcov/
 coverage.xml
@@ -27,12 +32,16 @@ coverage.xml
 tests/
 docs/
 
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+**/.vscode/
+**/.idea/
+**/.DS_Store
+**/Thumbs.db
 
-*-ca-bundle.pem
+# Local certificate material for networks that inspect TLS. Never ship it.
+**/*-ca-bundle.pem
+**/*-ca.pem
+**/*.pem
+
 Dockerfile
 .dockerignore
 docker-compose.yml
