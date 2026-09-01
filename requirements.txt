@@ -27,6 +27,9 @@ apscheduler==3.11.3
 # --- Credential encryption (SECRET_KEY) and local admin password hashing ---
 cryptography==50.0.0
 argon2-cffi==25.1.0
+# Signs the session cookie. Required by Starlette's SessionMiddleware; used in
+# preference to hand-rolling cookie signing.
+itsdangerous==2.2.0
 
 # --- Outbound: Graph token and mailbox calls, MTA-STS policy fetch, alert webhook ---
 httpx==0.28.1

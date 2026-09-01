@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}First-run setup · Rua{% endblock %}
+{% block subtitle %}First-run setup{% endblock %}
+{% block headerright %}<div class="hdr__sub">v{{ version }} · self-hosted</div>{% endblock %}
+
+{% block content %}
+<div class="wizard">
+
+  {# ── Left rail ─────────────────────────────────────────────────────── #}
+  <nav class="rail" aria-label="Setup progress">
+    <div class="rail__label">Setup</div>
+    {% for s in steps %}
+      {% set done = s.n < state.step %}
+      {% set current = s.n == state.step %}
+      {# Completed steps are navigable; future ones are not. #}
+      {% if done %}<a class="rail__step rail__step--link" href="{{ url_for('setup_step', step=s.n) }}">{% else %}<div class="rail__step">{% endif %}
+        <div class="rail__dot {% if done %}rail__dot--done{% elif current %}rail__dot--current{% else %}rail__dot--todo{% endif %}">
+          {% if done %}&#10003;{% else %}{{ s.n }}{% endif %}
+        </div>
+        <div>
+          <div class="rail__title {% if current %}rail__title--current{% endif %}">{{ s.title }}</div>
+          <div class="rail__note">{{ s.note }}</div>
+        </div>
+      {% if done %}</a>{% else %}</div>{% endif %}
+    {% endfor %}
+    <div class="rail__footer">Progress is saved after each step. You can close this and come back.</div>
+  </nav>
+
+  {# ── Right card ────────────────────────────────────────────────────── #}
+  <section class="card">
+    <div class="card__head">
+      <div class="card__kicker">Step {{ state.step }} of 5</div>
+      <h1 class="card__title">{{ head.title }}</h1>
+      <div class="card__blurb">{{ head.blurb }}</div>
+    </div>
+
+    <form method="post" action="{{ url_for('setup_submit') }}" id="wizard-form">
+      <input type="hidden" name="step" value="{{ state.step }}">
+      <div class="card__body">
+
+        {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div><br>{% endif %}
+
+        {# ── Step 1 — Administrator ─────────────────────────────────── #}
+        {% if state.step == 1 %}
+        <div class="stack stack--narrow">
+          <div>
+            <label class="field__label" for="admin-name">Full name</label>
+            <input id="admin-name" name="name" type="text" placeholder="Ada Whitfield"
+                   value="{{ state.admin_name }}" required>
+          </div>
+          <div>
+            <label class="field__label" for="admin-email">Email</label>
+            <input id="admin-email" name="email" type="email" placeholder="you@yourdomain.com"
+                   value="{{ state.admin_email }}" required>
+          </div>
+          <div>
+            <label class="field__label" for="admin-pw">Password</label>
+            <input id="admin-pw" name="password" type="password"
+                   placeholder="At least {{ min_password_length }} characters"
+                   minlength="{{ min_password_length }}"
+                   {% if not state.admin_exists %}required{% endif %}>
+            <div class="field__note">
+              This is the only account until you connect Entra SSO.
+              {% if state.admin_exists %} Leave blank to keep the current password.{% endif %}
+            </div>
+          </div>
+        </div>
+
+        {# ── Step 2 — App registration ──────────────────────────────── #}
+        {% elif state.step == 2 %}
+        <div class="toggle">
+          <label><input type="radio" name="scoping_mode" value="rbac"
+                        {% if state.scoping_mode == 'rbac' %}checked{% endif %}
+                        onchange="this.form.submit()"> RBAC for Applications <span class="rail__note">(recommended)</span></label>
+          <label><input type="radio" name="scoping_mode" value="policy"
+                        {% if state.scoping_mode == 'policy' %}checked{% endif %}
+                        onchange="this.form.submit()"> Application access policy <span class="rail__note">(legacy)</span></label>
+        </div>
+
+        <div class="steps">
+          <div class="steps__item">
+            <div class="steps__num">1</div>
+            <div class="steps__body">
+              <div class="steps__text">In Entra ID, create an app registration. Single tenant. No redirect URI is needed — Rua authenticates as an application, not as a signed-in user.</div>
+            </div>
+          </div>
+
+          <div class="steps__item">
+            <div class="steps__num">2</div>
+            <div class="steps__body">
+              <div class="steps__text">Add these <strong>application</strong> permissions under Microsoft Graph, then grant admin consent.</div>
+              <div class="code" data-copy>{{ entra_permissions }}<button type="button" class="btn btn--outlined code__copy" data-copy-button>Copy</button></div>
+              {% if state.scoping_mode == 'rbac' %}
+              <div class="field__note"><strong>Do not add Mail.Read here.</strong> With RBAC it is granted in Exchange instead. Granting it in both places produces the union of an unscoped and a scoped grant, which leaves the app with no effective scoping at all.</div>
+              {% else %}
+              <div class="field__note">Mail.Read is tenant-wide as granted. Step 3 constrains it to one mailbox.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="steps__item">
+            <div class="steps__num">3</div>
+            <div class="steps__body">
+              <div class="steps__text">Scope the app to the single report mailbox, in Exchange Online PowerShell.</div>
+              <div class="code" data-copy>{{ scoping_script }}<button type="button" class="btn btn--outlined code__copy" data-copy-button>Copy</button></div>
+            </div>
+          </div>
+
+          <div class="steps__item">
+            <div class="steps__num">4</div>
+            <div class="steps__body">
+              <div class="steps__text">Create a client secret and copy its <em>value</em> — not its ID. You will paste it on the next step, and it is shown only once by Entra.</div>
+            </div>
+          </div>
+        </div>
+
+        <br>
+        <div class="alert alert--info">
+          {% if state.scoping_mode == 'rbac' %}
+          The role assignment scopes Mail.Read to one mailbox. Exchange caches permission changes for 30 minutes to 2 hours, so the check on step 4 may fail briefly after you make it.
+          {% else %}
+          The access policy scopes Mail.Read to one mailbox. Microsoft has replaced this mechanism with RBAC for Applications and advises against it for new configuration.
+          {% endif %}
+        </div>
+
+        {# ── Step 3 — Credentials ───────────────────────────────────── #}
+        {% elif state.step == 3 %}
+        <div class="stack stack--wide">
+          <div>
+            <label class="field__label" for="tenant">Directory (tenant) ID</label>
+            <input id="tenant" name="tenant_id" type="text" data-resets="graph"
+                   placeholder="00000000-0000-0000-0000-000000000000" value="{{ state.tenant_id }}" required>
+          </div>
+          <div>
+            <label class="field__label" for="client">Application (client) ID</label>
+            <input id="client" name="client_id" type="text" data-resets="graph"
+                   placeholder="00000000-0000-0000-0000-000000000000" value="{{ state.client_id }}" required>
+          </div>
+          <div>
+            <label class="field__label" for="secret">Client secret</label>
+            <input id="secret" name="client_secret" type="password" data-resets="graph"
+                   placeholder="{% if state.has_secret %}Stored — leave blank to keep it{% else %}Paste the secret value{% endif %}"
+                   {% if not state.has_secret %}required{% endif %} autocomplete="off">
+            <div class="field__note">Stored encrypted with SECRET_KEY and never displayed again.</div>
+          </div>
+
+          <div class="row" style="padding-top:4px;">
+            <button type="submit" class="btn btn--contained" name="action" value="test_graph">Test connection</button>
+            <div class="status status--{{ graph_tone }}" data-status="graph">{{ graph_text }}</div>
+          </div>
+
+          {% if state.graph_ok %}
+          <div class="facts" data-facts="graph">
+            {% for f in state.graph_facts %}
+            <div class="facts__row"><div class="facts__k">{{ f.k }}</div><div class="facts__v">{{ f.v }}</div></div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+
+        {# ── Step 4 — Report mailbox ────────────────────────────────── #}
+        {% elif state.step == 4 %}
+        <div class="stack stack--wide">
+          <div>
+            <label class="field__label" for="mailbox">Shared mailbox receiving reports</label>
+            <input id="mailbox" name="mailbox" type="email" data-resets="mailbox"
+                   placeholder="dmarc-reports@yourdomain.com" value="{{ state.mailbox }}" required>
+            <div class="field__note">The address your DMARC <span class="mono">rua=</span> and TLS-RPT <span class="mono">rua=</span> tags already point at.</div>
+          </div>
+
+          <div class="row">
+            <button type="submit" class="btn btn--contained" name="action" value="test_mailbox">Verify access</button>
+            <div class="status status--{{ mailbox_tone }}" data-status="mailbox">{{ mailbox_text }}</div>
+          </div>
+
+          {% if state.mailbox_ok %}
+          <div class="facts" data-facts="mailbox">
+            {% for f in state.mailbox_facts %}
+            <div class="facts__row"><div class="facts__k">{{ f.k }}</div><div class="facts__v">{{ f.v }}</div></div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+
+        {# ── Step 5 — Review ────────────────────────────────────────── #}
+        {% elif state.step == 5 %}
+        <div class="review">
+          {% for r in summary %}
+          <div class="review__row">
+            <div class="review__tick">&#10003;</div>
+            <div class="review__label">{{ r.label }}</div>
+            <div class="review__value">{{ r.value }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        <div style="margin-top:20px; max-width:560px;">
+          <div class="alert alert--warning">Aggregate reports arrive on the receiver's schedule. Expect the first data within 24 hours, and a full picture after about 72.</div>
+        </div>
+        {% endif %}
+
+      </div>
+
+      <div class="card__foot">
+        <button type="submit" class="btn btn--text" name="action" value="sample">Explore with sample data</button>
+        <div class="spacer"></div>
+        <button type="submit" class="btn btn--outlined" name="action" value="back"
+                {% if state.step == 1 %}disabled{% endif %}>Back</button>
+        <button type="submit" class="btn btn--contained" name="action" value="next"
+                {% if not can_advance %}disabled{% endif %}>{{ next_label }}</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script>
+// Two small islands, matching the prototype's behaviour.
+//
+// 1. Editing a credential clears the displayed verdict immediately, so the panel
+//    never claims a pass that the next submit is going to invalidate anyway. The
+//    authoritative reset happens server-side via the generation counter; this is
+//    only so the screen does not lie in the meantime.
+document.querySelectorAll('[data-resets]').forEach(function (input) {
+  input.addEventListener('input', function () {
+    var which = input.getAttribute('data-resets');
+    var status = document.querySelector('[data-status="' + which + '"]');
+    var facts = document.querySelector('[data-facts="' + which + '"]');
+    if (status) {
+      status.className = 'status status--muted';
+      status.textContent = which === 'graph' ? 'Not tested yet' : 'Not verified yet';
+    }
+    if (facts) { facts.remove(); }
+    var next = document.querySelector('button[value="next"]');
+    if (next) { next.disabled = true; }
+  });
+});
+
+// 2. Copy buttons flip to "Copied" for 1400ms.
+document.querySelectorAll('[data-copy-button]').forEach(function (button) {
+  button.addEventListener('click', function () {
+    var block = button.closest('[data-copy]').cloneNode(true);
+    var inner = block.querySelector('[data-copy-button]');
+    if (inner) { inner.remove(); }
+    navigator.clipboard.writeText(block.textContent.trim()).then(function () {
+      button.textContent = 'Copied';
+      setTimeout(function () { button.textContent = 'Copy'; }, 1400);
+    });
+  });
+});
+</script>
+{% endblock %}

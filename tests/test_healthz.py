@@ -50,8 +50,20 @@ def test_healthz_leaks_no_connection_detail(client, monkeypatch) -> None:
 def test_interactive_docs_are_disabled(client) -> None:
     # Swagger UI and ReDoc pull assets from a public CDN. "No outbound call the
     # operator did not configure" is a documented promise.
-    assert client.get("/docs").status_code == 404
-    assert client.get("/redoc").status_code == 404
+    #
+    # Asserted on the route table rather than on a 404: since milestone 3 the
+    # setup gate redirects unknown paths to the wizard, so a status code alone
+    # would no longer distinguish "not registered" from "bounced by middleware".
+    from rua.main import app
+
+    paths = {route.path for route in app.routes if hasattr(route, "path")}
+    assert "/docs" not in paths
+    assert "/redoc" not in paths
+
+    for path in ("/docs", "/redoc"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code != 200
+        assert "swagger" not in response.text.lower()
 
 
 def test_openapi_schema_is_served_locally(client) -> None:

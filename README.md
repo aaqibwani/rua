@@ -48,11 +48,41 @@ Rua authenticates to Graph as an application with two permissions:
 
 | Permission | Why |
 |---|---|
-| `Mail.ReadBasic` | Read the report attachments in the shared mailbox |
+| `Mail.Read` | Read the report attachments in the shared mailbox |
 | `Domain.Read.All` | Read the tenant's verified domain list |
 
-`Mail.ReadBasic` is tenant-wide as granted, which is not acceptable on its own. Setup
-requires an **application access policy** restricting the app to the single report mailbox:
+`Mail.Read`, not `Mail.ReadBasic`. Microsoft's permissions reference is explicit that
+`Mail.ReadBasic` "Includes all properties except body, previewBody, **attachments** and
+any extended properties" — and DMARC aggregate reports *are* attachments, so the narrower
+permission cannot read a single report.
+
+Either permission would be tenant-wide as granted, which is not acceptable on its own.
+Setup therefore requires the app to be scoped to the single report mailbox, and will not
+complete until it can prove that mailbox is reachable. The wizard offers both mechanisms.
+
+**RBAC for Applications** (recommended — Microsoft has replaced access policies with it):
+
+```powershell
+Connect-ExchangeOnline
+
+# ObjectId comes from Enterprise applications, not App registrations
+New-ServicePrincipal -AppId <client-id> -ObjectId <enterprise-app-object-id> -DisplayName "Rua"
+
+New-ManagementScope -Name "Rua report mailbox" `
+  -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'dmarc-reports@example.com'"
+
+New-ManagementRoleAssignment -App <enterprise-app-object-id> `
+  -Role "Application Mail.Read" `
+  -CustomResourceScope "Rua report mailbox"
+
+Test-ServicePrincipalAuthorization -Identity <client-id> -Resource dmarc-reports@example.com
+```
+
+With RBAC, grant **only `Domain.Read.All` in Entra**. Granting `Mail.Read` there as well
+unions an unscoped grant with the scoped one and leaves the app with no effective scoping
+at all.
+
+**Application access policy** (legacy; grant both permissions in Entra first):
 
 ```powershell
 New-ApplicationAccessPolicy `
@@ -65,8 +95,12 @@ New-ApplicationAccessPolicy `
 Test-ApplicationAccessPolicy -Identity someone-else@example.com -AppId <client-id>
 ```
 
-There is no code path to any other mailbox, and no path to message bodies beyond report
-attachments.
+Exchange caches permission changes for 30 minutes to 2 hours, so the wizard's mailbox check
+can fail briefly after you configure scoping. `Test-ServicePrincipalAuthorization` bypasses
+that cache.
+
+There is no code path to any other mailbox. Within the report mailbox, `Mail.Read` does
+grant access to message bodies; Rua reads report attachments and stores nothing else.
 
 ## What Rua deliberately does not do
 

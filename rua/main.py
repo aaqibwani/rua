@@ -1,8 +1,8 @@
-"""FastAPI application — the JSON API and, from milestone 7, the frontend.
+"""FastAPI application — the JSON API and the server-rendered frontend.
 
 One package serves both. There is no separate frontend build, no bundler and no
-Node toolchain; see the "Recommended frontend approach" section of the handoff spec
-for why.
+Node toolchain; see the "Recommended frontend approach" section of the handoff
+spec for why.
 """
 
 from __future__ import annotations
@@ -11,14 +11,26 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Response, status
+from fastapi import APIRouter, FastAPI, Request, Response, status
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from rua import __version__
 from rua.config import get_settings
 from rua.db import check_connection
 from rua.logging import configure_logging, get_logger
+from rua.middleware import SetupGateMiddleware
+from rua.paths import STATIC_DIR, TEMPLATES_DIR
+from rua.routes import setup_router
+from rua.security import SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, session_secret
 
 log = get_logger(__name__)
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+ops_router = APIRouter()
+home_router = APIRouter()
 
 
 @asynccontextmanager
@@ -42,7 +54,9 @@ def create_app() -> FastAPI:
     A factory rather than a bare module-level app so tests can construct an
     instance with settings overridden.
     """
-    return FastAPI(
+    settings = get_settings()
+
+    app = FastAPI(
         title="Rua",
         summary="Email-authentication posture for one Microsoft 365 tenant",
         version=__version__,
@@ -56,11 +70,28 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json",
     )
 
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.include_router(ops_router)
+    app.include_router(home_router)
+    app.include_router(setup_router)
 
-app = create_app()
+    # Order matters: middleware added last runs first, so the session must be
+    # available by the time the setup gate looks at the request.
+    app.add_middleware(SetupGateMiddleware)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret(),
+        session_cookie=SESSION_COOKIE,
+        max_age=SESSION_MAX_AGE_SECONDS,
+        same_site="lax",
+        # BASE_URL tells us whether this deployment is served over TLS. Marking
+        # the cookie Secure on a plain-http deployment would silently break login.
+        https_only=settings.base_url.startswith("https://"),
+    )
+    return app
 
 
-@app.get("/healthz", tags=["ops"], summary="Liveness and database connectivity")
+@ops_router.get("/healthz", tags=["ops"], summary="Liveness and database connectivity")
 def healthz(response: Response) -> dict[str, Any]:
     """Report process health and database reachability.
 
@@ -78,3 +109,19 @@ def healthz(response: Response) -> dict[str, Any]:
         "version": __version__,
         "database": "ok" if database_ok else "error",
     }
+
+
+@home_router.get("/", response_class=HTMLResponse, name="home")
+def home(request: Request) -> Response:
+    """Landing page after setup.
+
+    A holding page until milestone 7 builds the dashboard and milestone 8 the
+    day-zero waiting state. It exists because finishing the wizard has to land
+    somewhere; it is not the designed screen and will be replaced wholesale.
+    """
+    return templates.TemplateResponse(request, "home.html", {"version": __version__})
+
+
+# Built after the routers are declared, so the factory returns a complete app.
+# uvicorn imports this symbol; tests call create_app() for an isolated instance.
+app = create_app()

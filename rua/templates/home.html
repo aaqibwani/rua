@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Rua{% endblock %}
+{% block subtitle %}Setup complete{% endblock %}
+
+{% block content %}
+{#
+  A holding page. The designed screens — the four dashboard tabs and the day-zero
+  waiting state — arrive in milestones 7 and 8. This exists so that finishing the
+  wizard lands somewhere honest rather than on a 404.
+#}
+<div class="wizard" style="grid-template-columns: minmax(0, 1fr);">
+  <section class="card">
+    <div class="card__head">
+      <div class="card__kicker">Ingestion configured</div>
+      <h1 class="card__title">Setup is complete.</h1>
+      <div class="card__blurb">
+        The Graph connection and the report mailbox both verified. Ingestion runs on
+        its schedule from here.
+      </div>
+    </div>
+    <div class="card__body">
+      <div class="alert alert--info">
+        The dashboard and the day-zero waiting page are not built yet. This page is a
+        placeholder and will be replaced by them.
+      </div>
+      <br>
+      <div class="field__note">
+        Aggregate reports arrive on the receiver's schedule. Expect the first data
+        within 24 hours, and a full picture after about 72.
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}

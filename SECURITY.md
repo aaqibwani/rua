@@ -32,6 +32,14 @@ Parsed aggregate data (sending IPs, volumes, dispositions, alignment results), p
 TLS-RPT data, DNS record state, encrypted Graph credentials, and local password hashes.
 No message bodies, no recipient addresses, no forensic reports.
 
+A note on scope versus behaviour. Rua authenticates with `Mail.Read`, because DMARC reports
+arrive as attachments and `Mail.ReadBasic` explicitly excludes them. Within the one mailbox
+it is scoped to, that permission *can* read message bodies. Rua does not: it reads report
+attachments, parses them, and stores only the parsed aggregates listed above. Treat "no
+message bodies" as a statement about what is retained, not about what the token could reach.
+Reports of a code path that reads or persists anything beyond report attachments are in
+scope for disclosure.
+
 ## Supported versions
 
 The latest minor release only. There are no long-term support branches.

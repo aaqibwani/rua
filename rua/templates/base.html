@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Rua{% endblock %}</title>
+  {# No external stylesheets, fonts or scripts. "No telemetry, and no outbound
+     call the operator did not configure" is a documented promise, and a CDN
+     reference from the browser is exactly that kind of call. #}
+  <link rel="stylesheet" href="{{ url_for('static', path='/rua.css') }}">
+</head>
+<body>
+  <header class="hdr">
+    <div class="hdr__mark" aria-hidden="true"></div>
+    <div class="hdr__name">Rua</div>
+    <div class="hdr__rule" aria-hidden="true"></div>
+    <div class="hdr__sub">{% block subtitle %}{% endblock %}</div>
+    <div class="spacer"></div>
+    {% block headerright %}{% endblock %}
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

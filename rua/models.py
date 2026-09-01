@@ -436,3 +436,40 @@ class IngestRun(Base):
             name="ck_ingest_run_counts_non_negative",
         ),
     )
+
+
+class AdminUser(Base):
+    """The single local administrator.
+
+    "This is the only account until you connect Entra SSO" — the wizard says so,
+    so the database enforces it: the primary key is pinned to 1 by a CHECK
+    constraint, which makes a second account a constraint violation rather than
+    something a future code path can create by accident.
+
+    The account exists so a fresh deployment is not claimable by the first
+    visitor. It is not access control — there is no rate limiting on login, which
+    is documented and is why SECURITY.md tells operators to use a proxy.
+    """
+
+    __tablename__ = "admin_user"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False, default=1)
+    name: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+
+    # Argon2id, from rua.security.hash_password. Never logged, never returned by
+    # any endpoint, and listed in SECURITY.md as in-scope for disclosure reports.
+    password_hash: Mapped[str] = mapped_column(Text)
+
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_login_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_admin_user_single_row"),)
+
+    def __repr__(self) -> str:
+        # Deliberately excludes password_hash.
+        return f"<AdminUser {self.email}>"
