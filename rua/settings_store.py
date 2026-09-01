@@ -47,10 +47,23 @@ VERIFY_MAILBOX_OK = "verify.mailbox.ok"
 VERIFY_MAILBOX_AT = "verify.mailbox.at"
 VERIFY_MAILBOX_FACTS = "verify.mailbox.facts"
 
-# Bumped on every credential edit. A verification result is only honoured if it
-# was produced at the current generation, which is what stops a slow in-flight
-# check from resurrecting a pass after the inputs changed underneath it.
-VERIFY_GENERATION = "verify.generation"
+# Verification results are stamped with the generation of the inputs they were
+# produced against, and honoured only at the current generation. That is what
+# stops a slow in-flight check from resurrecting a pass after its inputs changed.
+#
+# There are two counters, not one, and the asymmetry is deliberate:
+#
+#   credentials change -> both verdicts die (a new tenant makes the old mailbox
+#                         probe meaningless as well as the old token test)
+#   mailbox changes    -> only the mailbox verdict dies (the token test did not
+#                         depend on which mailbox was named)
+#
+# A single shared counter looks stricter but is actually broken: on a first run
+# the operator necessarily sets the mailbox *after* passing the token test, so a
+# shared counter invalidates the token test they just watched succeed, and the
+# final step then refuses to complete with a message that contradicts the screen.
+VERIFY_GENERATION_GRAPH = "verify.generation.graph"
+VERIFY_GENERATION_MAILBOX = "verify.generation.mailbox"
 
 ENCRYPTED_KEYS = frozenset({GRAPH_CLIENT_SECRET})
 
@@ -146,19 +159,51 @@ def is_setup_complete(session: Session) -> bool:
     return get_bool(session, SETUP_COMPLETE)
 
 
-def current_generation(session: Session) -> int:
-    return get_int(session, VERIFY_GENERATION, default=0)
+def graph_generation(session: Session) -> int:
+    return get_int(session, VERIFY_GENERATION_GRAPH, default=0)
 
 
-def bump_generation(session: Session) -> int:
-    """Invalidate outstanding verification results.
+def mailbox_generation(session: Session) -> int:
+    return get_int(session, VERIFY_GENERATION_MAILBOX, default=0)
 
-    Called whenever a credential or the mailbox changes. Any check already in
-    flight was started against the old inputs, so its verdict must not count.
+
+def bump_credentials_generation(session: Session) -> None:
+    """A credential changed: both verdicts are now meaningless."""
+    _bump(session, VERIFY_GENERATION_GRAPH)
+    _bump(session, VERIFY_GENERATION_MAILBOX)
+
+
+def bump_mailbox_generation(session: Session) -> None:
+    """The mailbox changed: the token test still stands, the probe does not."""
+    _bump(session, VERIFY_GENERATION_MAILBOX)
+
+
+def _bump(session: Session, key: str) -> int:
+    """Increment a counter in the database rather than in Python.
+
+    ``UPDATE ... SET value = value::int + 1`` is atomic; a read-modify-write is
+    not, and two edits arriving together would collapse into one increment and
+    leave a superseded verdict looking current.
     """
-    nxt = current_generation(session) + 1
-    set_int(session, VERIFY_GENERATION, nxt)
-    return nxt
+    from sqlalchemy import text
+
+    result = session.execute(
+        text(
+            "INSERT INTO setting (key, value, encrypted, updated_at) "
+            "VALUES (:key, '1', false, now()) "
+            "ON CONFLICT (key) DO UPDATE "
+            "SET value = (setting.value::int + 1)::text, updated_at = now() "
+            "RETURNING value"
+        ),
+        {"key": key},
+    )
+    value = int(result.scalar_one())
+    session.flush()
+    # The row was changed behind the ORM's back, so drop any cached copy.
+    stale = session.get(Setting, key)
+    if stale is not None:
+        session.refresh(stale)
+    return value
 
 
 def all_settings(session: Session) -> dict[str, str]:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from rua.db import session_scope
@@ -35,18 +35,23 @@ class SetupGateMiddleware(BaseHTTPMiddleware):
         # a fresh deployment has one user clicking through five steps.
         self._complete = False
 
-    def _setup_complete(self) -> bool:
+    def _setup_complete(self) -> bool | None:
+        """True, False, or None when the answer is genuinely unknown.
+
+        None matters. Treating a database failure as "complete" sealed the wizard
+        and served the post-setup page, telling an operator whose database was
+        down that setup had finished. Treating it as "incomplete" would be just
+        as wrong on a configured deployment. Neither is a fact, so the caller
+        says so instead of guessing.
+        """
         if self._complete:
             return True
         try:
             with session_scope() as session:
                 complete = is_setup_complete(session)
         except Exception as exc:
-            # A database that is down is not a reason to bounce every request
-            # into a wizard that also needs the database. Let the request through
-            # and let the real handler produce a real error.
             log.error("setup_gate_check_failed", error_type=type(exc).__name__)
-            return True
+            return None
         self._complete = complete
         return complete
 
@@ -58,8 +63,17 @@ class SetupGateMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         in_wizard = path == "/setup" or path.startswith("/setup/")
+        complete = self._setup_complete()
 
-        if not self._setup_complete():
+        if complete is None:
+            # /healthz is already exempt above and reports the real cause.
+            return PlainTextResponse(
+                "Rua cannot reach its database, so it cannot tell whether setup is "
+                "complete. See /healthz and the container logs.",
+                status_code=503,
+            )
+
+        if not complete:
             if not in_wizard:
                 return RedirectResponse("/setup", status_code=303)
         elif in_wizard:

@@ -36,6 +36,7 @@
 
     <form method="post" action="{{ url_for('setup_submit') }}" id="wizard-form">
       <input type="hidden" name="step" value="{{ state.step }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="card__body">
 
         {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div><br>{% endif %}
@@ -68,13 +69,18 @@
 
         {# ── Step 2 — App registration ──────────────────────────────── #}
         {% elif state.step == 2 %}
+        {# form.submit() sends no button, so `action` fell back to its default of
+           "next" and switching the radio advanced the wizard past this step.
+           Clicking a hidden submit button carries its name/value instead. #}
+        <button type="submit" name="action" value="scoping" hidden id="scoping-submit"
+                tabindex="-1" aria-hidden="true"></button>
         <div class="toggle">
           <label><input type="radio" name="scoping_mode" value="rbac"
                         {% if state.scoping_mode == 'rbac' %}checked{% endif %}
-                        onchange="this.form.submit()"> RBAC for Applications <span class="rail__note">(recommended)</span></label>
+                        onchange="document.getElementById('scoping-submit').click()"> RBAC for Applications <span class="rail__note">(recommended)</span></label>
           <label><input type="radio" name="scoping_mode" value="policy"
                         {% if state.scoping_mode == 'policy' %}checked{% endif %}
-                        onchange="this.form.submit()"> Application access policy <span class="rail__note">(legacy)</span></label>
+                        onchange="document.getElementById('scoping-submit').click()"> Application access policy <span class="rail__note">(legacy)</span></label>
         </div>
 
         <div class="steps">
@@ -184,10 +190,14 @@
 
         {# ── Step 5 — Review ────────────────────────────────────────── #}
         {% elif state.step == 5 %}
+        {# The mark reflects the row. A green tick beside "not tested" would be
+           the wizard asserting the very thing the final step is about to refuse. #}
         <div class="review">
           {% for r in summary %}
           <div class="review__row">
-            <div class="review__tick">&#10003;</div>
+            <div class="review__tick {% if not r.ok %}review__tick--bad{% endif %}">
+              {% if r.ok %}&#10003;{% else %}!{% endif %}
+            </div>
             <div class="review__label">{{ r.label }}</div>
             <div class="review__value">{{ r.value }}</div>
           </div>

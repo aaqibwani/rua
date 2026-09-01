@@ -7,9 +7,10 @@ survive a restart.
 
 from __future__ import annotations
 
+import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -18,7 +19,7 @@ from rua import __version__, wizard
 from rua.db import get_session
 from rua.logging import get_logger
 from rua.paths import TEMPLATES_DIR
-from rua.security import MIN_PASSWORD_LENGTH
+from rua.security import MIN_PASSWORD_LENGTH, constant_time_equals
 from rua.seed import seed_demo
 
 log = get_logger(__name__)
@@ -96,12 +97,31 @@ def _scoping_script(mode: str, mailbox: str, client_id: str) -> str:
     )
 
 
+CSRF_SESSION_KEY = "csrf"
+CSRF_FIELD = "csrf_token"
+
+
+def csrf_token(request: Request) -> str:
+    """Per-session CSRF token, minted on first render.
+
+    The wizard is unauthenticated by construction — it runs before any account
+    exists — so a same-site form post from another page could otherwise drive it.
+    The token is compared in constant time and lives in the signed session cookie.
+    """
+    token = request.session.get(CSRF_SESSION_KEY)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session[CSRF_SESSION_KEY] = token
+    return token
+
+
 def _context(request: Request, state: wizard.WizardState, error: str | None = None) -> dict:
     graph_text, graph_tone = wizard.GRAPH_TONE[state.graph_status]
     mailbox_text, mailbox_tone = wizard.MAILBOX_TONE[state.mailbox_status]
 
     return {
         "request": request,
+        "csrf_token": csrf_token(request),
         "version": __version__,
         "state": state,
         "steps": RAIL,
@@ -122,15 +142,30 @@ def _context(request: Request, state: wizard.WizardState, error: str | None = No
             else "Mail.Read\nDomain.Read.All"
         ),
         "scoping_script": _scoping_script(state.scoping_mode, state.mailbox, state.client_id),
+        # `ok` drives the mark. A green tick beside "not tested" would be the
+        # wizard asserting the very thing the final step is about to refuse.
         "summary": [
-            {"label": "Administrator account", "value": state.admin_email or "not set"},
-            {"label": "Graph connection", "value": "tested" if state.graph_ok else "not tested"},
-            {"label": "Report mailbox", "value": state.mailbox or "not set"},
+            {
+                "label": "Administrator account",
+                "value": state.admin_email or "not set",
+                "ok": state.admin_exists,
+            },
+            {
+                "label": "Graph connection",
+                "value": "tested" if state.graph_ok else "not tested",
+                "ok": state.graph_ok,
+            },
+            {
+                "label": "Report mailbox",
+                "value": state.mailbox or "not set",
+                "ok": state.mailbox_ok,
+            },
             {
                 "label": "Scoping",
                 "value": "App RBAC"
                 if state.scoping_mode == wizard.SCOPING_RBAC
                 else "access policy",
+                "ok": True,
             },
         ],
     }
@@ -168,7 +203,21 @@ def setup_submit(
     client_id: Annotated[str, Form()] = "",
     client_secret: Annotated[str, Form()] = "",
     mailbox: Annotated[str, Form()] = "",
+    csrf_token_field: Annotated[str, Form(alias=CSRF_FIELD)] = "",
 ):
+    expected = request.session.get(CSRF_SESSION_KEY)
+    if not expected or not constant_time_equals(expected, csrf_token_field):
+        # The wizard runs before any account exists, so there is no login to
+        # lean on; the token is what stops another page driving setup.
+        raise HTTPException(status_code=403, detail="Invalid or missing form token.")
+
+    # Never trust the client's idea of which step it is on. The hidden field only
+    # says which form was rendered; the database says how far setup has actually
+    # got, and an advance from a step the operator has not reached must not count.
+    persisted = wizard.load_state(session).step
+    if step != persisted:
+        return RedirectResponse(f"/setup/{persisted}", status_code=303)
+
     error: str | None = None
 
     # Persist this step's inputs before doing anything else, so a failure below

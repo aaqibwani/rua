@@ -14,6 +14,8 @@ returned by any endpoint, never redisplayed after entry".
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from rua import settings_store as store
@@ -103,6 +105,41 @@ def _fill_credentials(session) -> None:
     wizard.save_credentials(session, TENANT, CLIENT, SECRET)
 
 
+def _pass_graph(session) -> None:
+    """Stamp a passing Graph verdict at the current credentials generation."""
+    wizard._record(
+        session,
+        store.graph_generation,
+        store.graph_generation(session),
+        True,
+        store.VERIFY_GRAPH_OK,
+        store.VERIFY_GRAPH_AT,
+        store.VERIFY_GRAPH_FACTS,
+        [{"k": "Tenant", "v": "example.onmicrosoft.com"}],
+    )
+
+
+def _pass_mailbox(session) -> None:
+    """Stamp a passing mailbox verdict at the current mailbox generation."""
+    wizard._record(
+        session,
+        store.mailbox_generation,
+        store.mailbox_generation(session),
+        True,
+        store.VERIFY_MAILBOX_OK,
+        store.VERIFY_MAILBOX_AT,
+        store.VERIFY_MAILBOX_FACTS,
+        [],
+    )
+
+
+def _csrf(client, path: str = "/setup/1") -> str:
+    """Render a page and lift its CSRF token; the client keeps the session cookie."""
+    match = re.search(r'name="csrf_token" value="([^"]+)"', client.get(path).text)
+    assert match, f"no CSRF token rendered at {path}"
+    return match.group(1)
+
+
 def test_stored_secret_is_encrypted_at_rest(clean_db) -> None:
     _fill_credentials(clean_db)
     row = clean_db.get(Setting, store.GRAPH_CLIENT_SECRET)
@@ -130,16 +167,7 @@ def test_all_settings_masks_encrypted_values(clean_db) -> None:
 
 def test_editing_a_credential_resets_the_verification(clean_db) -> None:
     _fill_credentials(clean_db)
-    generation = store.current_generation(clean_db)
-    wizard._record(
-        clean_db,
-        generation,
-        True,
-        store.VERIFY_GRAPH_OK,
-        store.VERIFY_GRAPH_AT,
-        store.VERIFY_GRAPH_FACTS,
-        [{"k": "Tenant", "v": "example"}],
-    )
+    _pass_graph(clean_db)
     assert wizard.load_state(clean_db).graph_ok is True
 
     changed = wizard.save_credentials(
@@ -157,16 +185,7 @@ def test_resubmitting_a_blank_secret_does_not_reset(clean_db) -> None:
     passing test every time the operator stepped back through the wizard.
     """
     _fill_credentials(clean_db)
-    generation = store.current_generation(clean_db)
-    wizard._record(
-        clean_db,
-        generation,
-        True,
-        store.VERIFY_GRAPH_OK,
-        store.VERIFY_GRAPH_AT,
-        store.VERIFY_GRAPH_FACTS,
-        [],
-    )
+    _pass_graph(clean_db)
 
     changed = wizard.save_credentials(clean_db, TENANT, CLIENT, None)
 
@@ -182,7 +201,7 @@ def test_a_superseded_verification_result_is_discarded(clean_db) -> None:
     stale pass arrived a second later and unlocked the step.
     """
     _fill_credentials(clean_db)
-    generation_when_test_started = store.current_generation(clean_db)
+    generation_when_test_started = store.graph_generation(clean_db)
 
     # The operator edits a field while the check is in flight.
     wizard.save_credentials(clean_db, TENANT, "44444444-4444-4444-4444-444444444444", None)
@@ -190,6 +209,7 @@ def test_a_superseded_verification_result_is_discarded(clean_db) -> None:
     # The old check now returns, stamped with the generation it started under.
     wizard._record(
         clean_db,
+        store.graph_generation,
         generation_when_test_started,
         True,
         store.VERIFY_GRAPH_OK,
@@ -204,19 +224,30 @@ def test_a_superseded_verification_result_is_discarded(clean_db) -> None:
 def test_editing_the_mailbox_resets_only_the_mailbox_verdict(clean_db) -> None:
     _fill_credentials(clean_db)
     wizard.save_mailbox(clean_db, MAILBOX)
-    generation = store.current_generation(clean_db)
-    for ok_key, at_key, facts_key in (
-        (store.VERIFY_GRAPH_OK, store.VERIFY_GRAPH_AT, store.VERIFY_GRAPH_FACTS),
-        (store.VERIFY_MAILBOX_OK, store.VERIFY_MAILBOX_AT, store.VERIFY_MAILBOX_FACTS),
-    ):
-        wizard._record(clean_db, generation, True, ok_key, at_key, facts_key, [])
+    _pass_graph(clean_db)
+    _pass_mailbox(clean_db)
 
     wizard.save_mailbox(clean_db, "somewhere-else@example.com")
     state = wizard.load_state(clean_db)
 
-    # A single generation counter invalidates both. That is stricter than the
-    # prototype, which reset only the edited one — and stricter is right here: a
-    # changed mailbox makes the previous mailbox probe meaningless.
+    assert state.mailbox_ok is False, "the probe was against the old address"
+    # And crucially NOT the token test. A shared counter would kill it here, and
+    # since the mailbox is always set after the token test on a first run, that
+    # made the final step refuse to complete on every fresh install.
+    assert state.graph_ok is True, "naming a mailbox must not un-test the token"
+
+
+def test_credential_change_invalidates_the_mailbox_probe_too(clean_db) -> None:
+    """The asymmetry runs one way only: a new tenant voids everything."""
+    _fill_credentials(clean_db)
+    wizard.save_mailbox(clean_db, MAILBOX)
+    _pass_graph(clean_db)
+    _pass_mailbox(clean_db)
+
+    wizard.save_credentials(clean_db, "99999999-9999-9999-9999-999999999999", CLIENT, None)
+    state = wizard.load_state(clean_db)
+
+    assert state.graph_ok is False
     assert state.mailbox_ok is False
 
 
@@ -232,16 +263,7 @@ def test_completion_refused_with_only_the_graph_test(clean_db) -> None:
     wizard.create_admin(clean_db, "Ada", "ada@example.com", "a-long-enough-password")
     _fill_credentials(clean_db)
     wizard.save_mailbox(clean_db, MAILBOX)
-    generation = store.current_generation(clean_db)
-    wizard._record(
-        clean_db,
-        generation,
-        True,
-        store.VERIFY_GRAPH_OK,
-        store.VERIFY_GRAPH_AT,
-        store.VERIFY_GRAPH_FACTS,
-        [],
-    )
+    _pass_graph(clean_db)
 
     with pytest.raises(wizard.SetupIncomplete, match="report mailbox"):
         wizard.complete_setup(clean_db)
@@ -253,12 +275,8 @@ def test_completion_succeeds_when_everything_passes(clean_db) -> None:
     wizard.create_admin(clean_db, "Ada", "ada@example.com", "a-long-enough-password")
     _fill_credentials(clean_db)
     wizard.save_mailbox(clean_db, MAILBOX)
-    generation = store.current_generation(clean_db)
-    for ok_key, at_key, facts_key in (
-        (store.VERIFY_GRAPH_OK, store.VERIFY_GRAPH_AT, store.VERIFY_GRAPH_FACTS),
-        (store.VERIFY_MAILBOX_OK, store.VERIFY_MAILBOX_AT, store.VERIFY_MAILBOX_FACTS),
-    ):
-        wizard._record(clean_db, generation, True, ok_key, at_key, facts_key, [])
+    _pass_graph(clean_db)
+    _pass_mailbox(clean_db)
 
     wizard.complete_setup(clean_db)
 
@@ -377,16 +395,22 @@ def test_completed_setup_seals_the_wizard(client, clean_db) -> None:
     assert response.headers["location"] == "/"
 
 
+def test_post_without_a_csrf_token_is_refused(client) -> None:
+    """The wizard runs before any account exists, so there is no login to lean on."""
+    response = client.post("/setup", data={"step": "1", "action": "next"})
+    assert response.status_code == 403
+
+
 def test_forged_post_to_the_final_step_cannot_complete_setup(client, clean_db) -> None:
-    """PINNED: the wizard cannot complete without both verifications passing.
+    """PINNED: the wizard cannot complete without both verifications passing."""
+    token = _csrf(client)
 
-    Enforced server-side against persisted state, so skipping the UI does not
-    skip the checks.
-    """
-    response = client.post("/setup", data={"step": "5", "action": "next"})
+    response = client.post("/setup", data={"step": "5", "action": "next", "csrf_token": token})
 
-    assert response.status_code == 200
-    assert "Setup cannot complete" in response.text
+    # The step field is reconciled against the persisted step, so a jump to 5
+    # from step 1 is bounced before any completion logic runs.
+    assert response.status_code == 303
+    assert response.headers["location"] == "/setup/1"
     assert store.is_setup_complete(clean_db) is False
 
 
@@ -394,15 +418,24 @@ def test_graph_test_failure_is_reported_not_swallowed(client, clean_db, monkeypa
     _fill_credentials(clean_db)
     wizard.save_step(clean_db, 3)
     clean_db.commit()
+    token = _csrf(client, "/setup/3")
 
     monkeypatch.setattr(
         "rua.graph.GraphClient.test_token",
-        lambda self: TokenTest(ok=False, error="The client secret is wrong or has expired."),
+        lambda self, required=(): TokenTest(
+            ok=False, error="The client secret is wrong or has expired."
+        ),
     )
 
     response = client.post(
         "/setup",
-        data={"step": "3", "action": "test_graph", "tenant_id": TENANT, "client_id": CLIENT},
+        data={
+            "step": "3",
+            "action": "test_graph",
+            "tenant_id": TENANT,
+            "client_id": CLIENT,
+            "csrf_token": token,
+        },
     )
 
     assert "The client secret is wrong or has expired." in response.text
@@ -414,6 +447,7 @@ def test_successful_mailbox_check_unlocks_continue(client, clean_db, monkeypatch
     wizard.save_mailbox(clean_db, MAILBOX)
     wizard.save_step(clean_db, 4)
     clean_db.commit()
+    token = _csrf(client, "/setup/4")
 
     monkeypatch.setattr(
         "rua.graph.GraphClient.test_mailbox",
@@ -421,9 +455,71 @@ def test_successful_mailbox_check_unlocks_continue(client, clean_db, monkeypatch
     )
 
     response = client.post(
-        "/setup", data={"step": "4", "action": "test_mailbox", "mailbox": MAILBOX}
+        "/setup",
+        data={
+            "step": "4",
+            "action": "test_mailbox",
+            "mailbox": MAILBOX,
+            "csrf_token": token,
+        },
     )
 
     assert "Mailbox reachable" in response.text
     assert "4,182" in response.text
-    assert "this mailbox only" in response.text
+    # Not "this mailbox only": opening one mailbox proves access to it, not the
+    # absence of access to others.
+    assert "verified for this mailbox" in response.text
+
+
+def test_the_whole_wizard_completes_in_the_order_an_operator_walks_it(
+    client, clean_db, monkeypatch
+) -> None:
+    """Steps 1 to 5 through HTTP, in sequence, with nothing pre-seeded.
+
+    This is the test that was missing. The unit tests each set state up directly
+    and happened to do it in an order the real flow never produces, which hid a
+    bug that blocked every first run at the final step.
+    """
+    monkeypatch.setattr(
+        "rua.graph.GraphClient.test_token",
+        lambda self, required=(): TokenTest(
+            ok=True, tenant_domain="example.onmicrosoft.com", permissions=["Domain.Read.All"]
+        ),
+    )
+    monkeypatch.setattr(
+        "rua.graph.GraphClient.test_mailbox",
+        lambda self, mailbox: MailboxTest(ok=True, message_count=4182),
+    )
+
+    def post(step: int, **data):
+        payload = {"step": str(step), "csrf_token": _csrf(client, f"/setup/{step}"), **data}
+        return client.post("/setup", data=payload)
+
+    # Step 1 — create the administrator.
+    post(1, action="next", name="Ada", email="ada@example.com", password="a-long-enough-pw")
+    assert wizard.load_state(clean_db).step == 2
+
+    # Step 2 — accept the default RBAC scoping.
+    post(2, action="next", scoping_mode="rbac")
+    assert wizard.load_state(clean_db).step == 3
+
+    # Step 3 — paste credentials, test, continue.
+    post(3, action="test_graph", tenant_id=TENANT, client_id=CLIENT, client_secret=SECRET)
+    assert wizard.load_state(clean_db).graph_ok is True
+    post(3, action="next", tenant_id=TENANT, client_id=CLIENT, client_secret="")
+    assert wizard.load_state(clean_db).step == 4
+
+    # Step 4 — name the mailbox for the first time, verify, continue.
+    post(4, action="test_mailbox", mailbox=MAILBOX)
+    state = wizard.load_state(clean_db)
+    assert state.mailbox_ok is True
+    assert state.graph_ok is True, "naming the mailbox must not un-test the token"
+    post(4, action="next", mailbox=MAILBOX)
+    assert wizard.load_state(clean_db).step == 5
+
+    # Step 5 — start ingesting.
+    response = post(5, action="next")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert store.is_setup_complete(clean_db) is True

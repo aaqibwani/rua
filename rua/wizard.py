@@ -22,13 +22,21 @@ step passed. A counter makes that impossible regardless of ordering.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from rua import settings_store as store
-from rua.graph import GraphClient, GraphCredentials, MailboxTest, TokenTest
+from rua.graph import (
+    ENTRA_PERMISSIONS_POLICY,
+    ENTRA_PERMISSIONS_RBAC,
+    GraphClient,
+    GraphCredentials,
+    MailboxTest,
+    TokenTest,
+)
 from rua.logging import get_logger
 from rua.models import AdminUser
 from rua.security import hash_password
@@ -110,7 +118,6 @@ class WizardState:
 
 def load_state(session: Session) -> WizardState:
     admin = session.scalar(select(AdminUser).limit(1))
-    generation = store.current_generation(session)
 
     state = WizardState(
         step=store.get_int(session, store.SETUP_STEP, FIRST_STEP),
@@ -125,11 +132,13 @@ def load_state(session: Session) -> WizardState:
         scoping_mode=store.get(session, store.SETUP_SCOPING_MODE, SCOPING_RBAC) or SCOPING_RBAC,
     )
 
-    # A verdict counts only if it was produced against the current inputs.
-    if store.get_int(session, store.VERIFY_GRAPH_OK, -1) == generation:
+    # A verdict counts only if it was produced against the inputs still in place.
+    # Each is checked against its own counter: naming the mailbox on step 4 must
+    # not retroactively un-test the token that was verified on step 3.
+    if store.get_int(session, store.VERIFY_GRAPH_OK, -1) == store.graph_generation(session):
         state.graph_status = "ok"
         state.graph_facts = store.get_json(session, store.VERIFY_GRAPH_FACTS, []) or []
-    if store.get_int(session, store.VERIFY_MAILBOX_OK, -1) == generation:
+    if store.get_int(session, store.VERIFY_MAILBOX_OK, -1) == store.mailbox_generation(session):
         state.mailbox_status = "ok"
         state.mailbox_facts = store.get_json(session, store.VERIFY_MAILBOX_FACTS, []) or []
 
@@ -211,8 +220,10 @@ def save_credentials(
         store.set_value(session, store.GRAPH_CLIENT_SECRET, client_secret)
 
     if changed:
-        store.bump_generation(session)
-        log.info("graph_credentials_changed_verification_reset")
+        # Both verdicts: a different tenant or client makes the previous mailbox
+        # probe as meaningless as the previous token test.
+        store.bump_credentials_generation(session)
+        log.info("graph_credentials_changed_verifications_reset")
     return changed
 
 
@@ -221,7 +232,10 @@ def save_mailbox(session: Session, mailbox: str) -> bool:
     changed = (store.get(session, store.GRAPH_MAILBOX, "") or "") != mailbox
     store.set_value(session, store.GRAPH_MAILBOX, mailbox)
     if changed:
-        store.bump_generation(session)
+        # Only the mailbox verdict. The token test did not depend on which
+        # mailbox was named, and on a first run the mailbox is necessarily set
+        # after the token test passes.
+        store.bump_mailbox_generation(session)
         log.info("report_mailbox_changed_verification_reset")
     return changed
 
@@ -247,15 +261,22 @@ def _credentials(session: Session) -> GraphCredentials | None:
 
 
 def run_graph_test(session: Session) -> TokenTest:
-    """Acquire a token and record the verdict against the current generation."""
-    generation = store.current_generation(session)
+    """Acquire a token and record the verdict against the credentials generation."""
+    generation = store.graph_generation(session)
     credentials = _credentials(session)
     if credentials is None:
         return TokenTest(ok=False, error="Enter all three values before testing.")
 
-    result = GraphClient(credentials).test_token()
+    # Which Entra grants to insist on depends on the scoping mode: under RBAC,
+    # Mail.Read lives in Exchange and must be absent from Entra, so demanding it
+    # in the token's roles claim would fail every correctly-configured tenant.
+    mode = store.get(session, store.SETUP_SCOPING_MODE, SCOPING_RBAC) or SCOPING_RBAC
+    required = ENTRA_PERMISSIONS_RBAC if mode == SCOPING_RBAC else ENTRA_PERMISSIONS_POLICY
+
+    result = GraphClient(credentials).test_token(required=required)
     _record(
         session,
+        store.graph_generation,
         generation,
         result.ok,
         store.VERIFY_GRAPH_OK,
@@ -263,13 +284,17 @@ def run_graph_test(session: Session) -> TokenTest:
         store.VERIFY_GRAPH_FACTS,
         result.facts(),
     )
-    log.info("graph_token_test", ok=result.ok, permissions=result.permissions)
+    log.info("graph_token_test", ok=result.ok, permissions=result.permissions, scoping=mode)
     return result
 
 
 def run_mailbox_test(session: Session) -> MailboxTest:
-    """Prove the app can open the report mailbox, and only that mailbox."""
-    generation = store.current_generation(session)
+    """Prove the app can read the report mailbox.
+
+    Under RBAC this is also the only proof that Mail.Read was granted at all, so
+    it carries more weight than the design's "Verify access" label suggests.
+    """
+    generation = store.mailbox_generation(session)
     credentials = _credentials(session)
     if credentials is None:
         return MailboxTest(ok=False, error="Test the Graph connection first.")
@@ -281,6 +306,7 @@ def run_mailbox_test(session: Session) -> MailboxTest:
     result = GraphClient(credentials).test_mailbox(mailbox)
     _record(
         session,
+        store.mailbox_generation,
         generation,
         result.ok,
         store.VERIFY_MAILBOX_OK,
@@ -294,6 +320,7 @@ def run_mailbox_test(session: Session) -> MailboxTest:
 
 def _record(
     session: Session,
+    read_generation: Callable[[Session], int],
     generation: int,
     ok: bool,
     ok_key: str,
@@ -303,10 +330,10 @@ def _record(
 ) -> None:
     """Stamp a verdict with the generation it was produced against.
 
-    If the inputs changed while the check was running, the generation has already
+    If the inputs changed while the check was running, the counter has already
     moved on and this write lands as a stale value that ``load_state`` ignores.
     """
-    if store.current_generation(session) != generation:
+    if read_generation(session) != generation:
         log.info("verification_result_discarded_superseded", key=ok_key)
         return
     if ok:

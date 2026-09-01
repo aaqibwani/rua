@@ -24,7 +24,9 @@ import base64
 import binascii
 import datetime as dt
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from urllib.parse import quote
 
 import httpx
 
@@ -36,7 +38,19 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 LOGIN_BASE = "https://login.microsoftonline.com"
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 
-REQUIRED_PERMISSIONS = ("Mail.Read", "Domain.Read.All")
+# Which permissions must appear in the token's `roles` claim depends on how the
+# app was scoped, and getting this wrong locks out the recommended path.
+#
+# The claim reflects Entra grants only. Under RBAC for Applications, Mail.Read is
+# assigned in Exchange and deliberately NOT in Entra — granting it in both places
+# unions an unscoped grant with the scoped one and defeats the scoping entirely.
+# So a correctly-configured RBAC tenant presents a token carrying only
+# Domain.Read.All, and requiring Mail.Read here would fail every such tenant.
+#
+# Mail.Read is not taken on trust in that mode: the step-4 mailbox probe is what
+# proves it, and it proves the scoping at the same time.
+ENTRA_PERMISSIONS_RBAC = ("Domain.Read.All",)
+ENTRA_PERMISSIONS_POLICY = ("Mail.Read", "Domain.Read.All")
 
 # Graph is not fast, and a hung setup wizard is worse than a failed one.
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
@@ -108,7 +122,13 @@ class MailboxTest:
             },
             {"k": "Oldest report", "v": self.oldest.date().isoformat() if self.oldest else "none"},
             {"k": "Newest report", "v": _relative(self.newest) if self.newest else "none"},
-            {"k": "Access scope", "v": "this mailbox only"},
+            # The design copy read "this mailbox only". That overstates what this
+            # check establishes: opening one mailbox proves access TO it, not the
+            # absence of access to every other. Exclusivity is enforced by the
+            # Exchange scoping assignment, and the operator confirms it with
+            # Test-ServicePrincipalAuthorization / Test-ApplicationAccessPolicy —
+            # which the step-2 script already tells them to run.
+            {"k": "Access scope", "v": "verified for this mailbox"},
         ]
 
 
@@ -214,11 +234,14 @@ class GraphClient:
 
     # ─── The two wizard verifications ────────────────────────────────────
 
-    def test_token(self) -> TokenTest:
+    def test_token(self, required: Sequence[str] = ENTRA_PERMISSIONS_POLICY) -> TokenTest:
         """Acquire a token and report the tenant and the permissions granted.
 
         The wizard blocks on this: a deployment that looks configured but cannot
         authenticate is the worst outcome for this tool.
+
+        ``required`` is the set that must appear in the token's ``roles`` claim,
+        which differs by scoping mode — see the note on ENTRA_PERMISSIONS_RBAC.
         """
         try:
             token = self.acquire_token(force=True)
@@ -226,7 +249,7 @@ class GraphClient:
             return TokenTest(ok=False, error=str(exc))
 
         granted = _decode_roles(token)
-        missing = [p for p in REQUIRED_PERMISSIONS if p not in granted]
+        missing = [p for p in required if p not in granted]
 
         tenant_domain = None
         try:
@@ -256,8 +279,11 @@ class GraphClient:
         This is also the check that proves scoping works end to end: it is the
         only mailbox the app should be able to open.
         """
+        # Percent-encode: an address is operator-supplied and lands in a URL path.
+        # `safe=""` also escapes "/", so nothing can climb out of /users/.
+        target = quote(mailbox, safe="")
         try:
-            folder = self._get(f"/users/{mailbox}/mailFolders/inbox")
+            folder = self._get(f"/users/{target}/mailFolders/inbox")
         except GraphError as exc:
             return MailboxTest(ok=False, error=str(exc))
 
@@ -275,23 +301,47 @@ class GraphClient:
             return MailboxTest(ok=False, error=_describe_generic(folder))
 
         count = folder.json().get("totalItemCount")
-        oldest = self._edge_message(mailbox, ascending=True)
-        newest = self._edge_message(mailbox, ascending=False)
+
+        # Reading messages needs Mail.Read, which reading the folder does not. If
+        # these fail the mailbox is reachable but unreadable, and reporting that
+        # as a pass would let setup complete on a deployment that can never
+        # ingest — exactly what the pinned constraint exists to prevent.
+        try:
+            oldest = self._edge_message(target, ascending=True)
+            newest = self._edge_message(target, ascending=False)
+        except GraphError as exc:
+            return MailboxTest(
+                ok=False,
+                message_count=count,
+                error=(
+                    f"The mailbox exists and its folders are readable, but its messages "
+                    f"are not: {exc} Reading report attachments needs Mail.Read. "
+                    f"{_RBAC_CACHE_HINT}"
+                ),
+            )
         return MailboxTest(ok=True, message_count=count, oldest=oldest, newest=newest)
 
-    def _edge_message(self, mailbox: str, ascending: bool) -> dt.datetime | None:
-        """Timestamp of the oldest or newest message, or None for an empty mailbox."""
+    def _edge_message(self, encoded_mailbox: str, ascending: bool) -> dt.datetime | None:
+        """Timestamp of the oldest or newest message.
+
+        Returns None only for a genuinely empty mailbox. Any non-200 raises:
+        treating a 403 or a 429 as "empty" would silently downgrade a permission
+        failure into a passing check with no reports in it.
+        """
         order = "asc" if ascending else "desc"
         response = self._get(
-            f"/users/{mailbox}/messages",
+            f"/users/{encoded_mailbox}/messages",
             params={
                 "$top": 1,
                 "$select": "receivedDateTime",
                 "$orderby": f"receivedDateTime {order}",
             },
         )
+        if response.status_code in (401, 403):
+            raise GraphError(_describe_denial(response))
         if response.status_code != 200:
-            return None
+            raise GraphError(_describe_generic(response))
+
         items = response.json().get("value", [])
         if not items:
             return None
