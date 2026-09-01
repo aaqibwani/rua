@@ -581,7 +581,7 @@ def test_demo_mode_opens_the_dashboard_without_finishing_setup(client, clean_db)
 
     assert response.status_code == 200, "the setup gate must let demo mode through"
     assert "demo domains loaded" in response.text
-    assert "Finish setup" in response.text
+    assert "Back to setup" in response.text
 
 
 def test_the_wizard_stays_reachable_in_demo_mode(client, clean_db) -> None:

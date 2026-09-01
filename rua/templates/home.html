@@ -19,6 +19,10 @@
           Nothing here came from your tenant. Setup is not finished and ingestion is
           not configured — this is the seeded dataset, so you can see the shape of
           the thing before committing to it.
+          <br><br>
+          <strong>This page is standing in for the dashboard, which is not built yet.</strong>
+          The Domains table, Overview, Sources and TLS tabs arrive together; until then
+          the four counts below are the whole of it.
         </div>
       {% else %}
         <div class="card__kicker">Ingestion configured</div>
@@ -59,17 +63,17 @@
       <br>
       {% endif %}
 
-      <div class="alert alert--info">
-        The Domains table, Overview, Sources and TLS tabs are not built yet. This page
-        stands in for them.
-      </div>
-
       {% if demo_mode %}
-      <br>
       <div class="row">
+        {# "Finish setup" read as though it completed something. It does not — it
+           returns to the wizard, at whichever step you left off, so you can do
+           the finishing yourself. #}
         <a class="btn btn--contained" href="{{ url_for('setup_root') }}"
-           style="text-decoration:none; display:inline-flex; align-items:center;">Finish setup</a>
-        <div class="field__note">Ingestion will not start until you do.</div>
+           style="text-decoration:none; display:inline-flex; align-items:center;">Back to setup</a>
+        <div class="field__note">
+          Picks up where you left off. Ingestion will not start until the wizard is
+          finished, and finishing it needs a real tenant.
+        </div>
       </div>
       {% endif %}
     </div>
