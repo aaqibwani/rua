@@ -77,9 +77,17 @@ def clean_db() -> Iterator:
     except SQLAlchemyError as exc:
         pytest.skip(f"no database reachable: {type(exc).__name__}")
 
+    # Every mapped table, derived from the metadata rather than listed by hand —
+    # a table added in a later milestone would otherwise silently start leaking
+    # rows between tests, which is exactly how the M4 suite first failed.
+    from rua.db import Base
+    from rua.models import Domain  # noqa: F401 - ensures the models are imported
+
+    tables = ", ".join(sorted(Base.metadata.tables))
+
     def truncate() -> None:
         with session_scope() as session:
-            session.execute(text("TRUNCATE setting, admin_user, domain RESTART IDENTITY CASCADE"))
+            session.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
     truncate()
     with session_scope() as session:

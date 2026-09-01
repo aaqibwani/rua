@@ -1,0 +1,15 @@
+{
+  "organization-name": "Example Receiver",
+  "date-range": {
+    "start-datetime": "2026-01-02T00:00:00Z",
+    "end-datetime": "2026-01-02T23:59:59Z"
+  },
+  "report-id": "unexplained-0001",
+  "policies": [
+    {
+      "policy": {"policy-type": "sts", "policy-domain": "northwind.com", "policy-mode": "testing"},
+      "summary": {"total-successful-session-count": 100, "total-failure-session-count": 40},
+      "failure-details": [{"result-type": "validation-failure", "failed-session-count": 15}]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<feedback>
+  <report_metadata>
+    <org_name>google.com</org_name>
+    <email>noreply-dmarc-support@google.com</email>
+    <extra_contact_info>https://support.google.com/a/answer/2466580</extra_contact_info>
+    <report_id>7038306147107031780</report_id>
+    <date_range><begin>1767225600</begin><end>1767311999</end></date_range>
+  </report_metadata>
+  <policy_published>
+    <domain>fabrikam.com</domain>
+    <adkim>r</adkim><aspf>r</aspf><p>reject</p><sp>reject</sp><pct>100</pct>
+  </policy_published>
+  <record>
+    <row>
+      <source_ip>209.85.220.41</source_ip><count>1247</count>
+      <policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated>
+    </row>
+    <identifiers><header_from>fabrikam.com</header_from></identifiers>
+    <auth_results>
+      <dkim><domain>fabrikam.com</domain><result>pass</result><selector>s1</selector></dkim>
+      <spf><domain>fabrikam.com</domain><result>pass</result></spf>
+    </auth_results>
+  </record>
+  <record>
+    <row>
+      <source_ip>198.51.100.7</source_ip><count>38</count>
+      <policy_evaluated><disposition>quarantine</disposition><dkim>fail</dkim><spf>fail</spf></policy_evaluated>
+    </row>
+    <identifiers><header_from>fabrikam.com</header_from></identifiers>
+    <auth_results><spf><domain>mail.example.net</domain><result>softfail</result></spf></auth_results>
+  </record>
+  <record>
+    <row>
+      <source_ip>2a00:1450:4864:20::42d</source_ip><count>412</count>
+      <policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>fail</spf></policy_evaluated>
+    </row>
+    <identifiers><header_from>MAIL.Fabrikam.COM</header_from></identifiers>
+  </record>
+</feedback>

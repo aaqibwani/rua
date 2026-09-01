@@ -79,7 +79,30 @@ def _serve(host: str, port: int, reload: bool) -> int:
     return 0
 
 
+def _ingest_job() -> None:
+    """One mailbox poll.
+
+    Wrapped so that nothing escapes into APScheduler. ``run_ingestion`` already
+    records operational failures — an expired secret, a 401, a malformed report —
+    rather than raising, so anything reaching this handler is a bug. Even then
+    the process must stay up: Compose restarts it `unless-stopped`, and a crash
+    loop would take the scheduler out entirely over a single bad report.
+    """
+    from rua.db import session_scope
+    from rua.ingest import run_ingestion
+    from rua.logging import get_logger
+
+    log = get_logger("rua.scheduler")
+    try:
+        with session_scope() as session:
+            run_ingestion(session)
+    except Exception as exc:
+        log.exception("ingest_job_crashed", error_type=type(exc).__name__)
+
+
 def _scheduler() -> int:
+    import datetime as dt
+
     from apscheduler.schedulers.blocking import BlockingScheduler
 
     from rua.config import get_settings
@@ -91,12 +114,24 @@ def _scheduler() -> int:
 
     scheduler = BlockingScheduler(timezone="UTC")
 
-    # Jobs are registered by later milestones:
-    #   M4 — mailbox poll every INGEST_INTERVAL_MINUTES
+    scheduler.add_job(
+        _ingest_job,
+        trigger="interval",
+        minutes=settings.ingest_interval_minutes,
+        id="ingest",
+        name="Poll the report mailbox",
+        # A slow run must not queue up behind itself, and a missed slot should be
+        # dropped rather than replayed — the next poll covers the same ground.
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+        next_run_time=dt.datetime.now(dt.UTC) + dt.timedelta(seconds=15),
+    )
+
+    # Still to come:
     #   M5 — Graph /domains sync and DNS re-check daily at DOMAIN_SYNC_HOUR
     #   M9 — nightly retention rollup and delete
-    # Until then the process starts, stays up and registers nothing. It must not
-    # exit: Compose restarts it `unless-stopped`, and exiting would crash-loop.
+
     log.info(
         "scheduler_starting",
         registered_jobs=len(scheduler.get_jobs()),

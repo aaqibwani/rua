@@ -24,7 +24,7 @@ import base64
 import binascii
 import datetime as dt
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from urllib.parse import quote
 
@@ -66,8 +66,28 @@ _RBAC_CACHE_HINT = (
 )
 
 
+# A very busy mailbox should not make one run unbounded. At 50 messages a page
+# this is 10,000 messages; the next run picks up where this one stopped.
+MAX_MESSAGE_PAGES = 200
+
+
 class GraphError(RuntimeError):
     """A Graph call failed in a way the operator needs to see."""
+
+
+@dataclass(frozen=True, slots=True)
+class MailMessage:
+    id: str
+    subject: str
+    received: dt.datetime
+    has_attachments: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MailAttachment:
+    name: str
+    content_type: str
+    content: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +369,103 @@ class GraphClient:
         if not raw:
             return None
         return dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+
+    # ─── Reading the report mailbox ──────────────────────────────────────
+
+    def list_messages(
+        self, mailbox: str, since: dt.datetime | None = None, page_size: int = 50
+    ) -> Iterator[MailMessage]:
+        """Yield messages oldest-first, following pagination.
+
+        Oldest-first matters: ingestion checkpoints on the newest message it has
+        processed, so a run interrupted halfway leaves a checkpoint that does not
+        skip the messages it never reached.
+        """
+        target = quote(mailbox, safe="")
+        params: dict[str, object] = {
+            "$select": "id,subject,receivedDateTime,hasAttachments",
+            "$orderby": "receivedDateTime asc",
+            "$top": page_size,
+        }
+        if since is not None:
+            # Graph wants a literal, not a quoted string, for datetime comparison.
+            params["$filter"] = f"receivedDateTime gt {since.astimezone(dt.UTC):%Y-%m-%dT%H:%M:%SZ}"
+
+        path: str | None = f"/users/{target}/messages"
+        pages = 0
+        while path is not None:
+            response = self._get(path, params=params) if pages == 0 else self._get_absolute(path)
+            if response.status_code in (401, 403):
+                raise GraphError(_describe_denial(response))
+            if response.status_code != 200:
+                raise GraphError(_describe_generic(response))
+
+            body = response.json()
+            for item in body.get("value", []):
+                received = item.get("receivedDateTime")
+                yield MailMessage(
+                    id=item["id"],
+                    subject=item.get("subject") or "",
+                    received=(
+                        dt.datetime.fromisoformat(received.replace("Z", "+00:00"))
+                        if received
+                        else dt.datetime.now(dt.UTC)
+                    ),
+                    has_attachments=bool(item.get("hasAttachments")),
+                )
+
+            path = body.get("@odata.nextLink")
+            pages += 1
+            if pages > MAX_MESSAGE_PAGES:
+                log.warning("graph_message_pagination_capped", pages=pages, mailbox=mailbox)
+                return
+
+    def get_attachments(self, mailbox: str, message_id: str) -> list[MailAttachment]:
+        """Fetch a message's file attachments, decoded.
+
+        Only ``fileAttachment`` is returned. An ``itemAttachment`` is an embedded
+        message, which is the shape a forensic report takes — and forensic reports
+        are discarded unparsed as a deliberate privacy position.
+        """
+        target = quote(mailbox, safe="")
+        message = quote(message_id, safe="")
+        response = self._get(f"/users/{target}/messages/{message}/attachments")
+        if response.status_code in (401, 403):
+            raise GraphError(_describe_denial(response))
+        if response.status_code != 200:
+            raise GraphError(_describe_generic(response))
+
+        attachments: list[MailAttachment] = []
+        for item in response.json().get("value", []):
+            if item.get("@odata.type") != "#microsoft.graph.fileAttachment":
+                continue
+            raw = item.get("contentBytes")
+            if not raw:
+                continue
+            try:
+                content = base64.b64decode(raw, validate=True)
+            except (binascii.Error, ValueError):
+                log.info("graph_attachment_not_base64", name=item.get("name"))
+                continue
+            attachments.append(
+                MailAttachment(
+                    name=item.get("name") or "attachment",
+                    content_type=item.get("contentType") or "",
+                    content=content,
+                )
+            )
+        return attachments
+
+    def _get_absolute(self, url: str) -> httpx.Response:
+        """Follow an @odata.nextLink, which is a fully-qualified URL."""
+        token = self.acquire_token()
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                return client.get(
+                    url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"}
+                )
+        except httpx.RequestError as exc:
+            raise GraphError(f"Could not reach Microsoft Graph: {type(exc).__name__}.") from None
 
     # ─── Domains ─────────────────────────────────────────────────────────
 

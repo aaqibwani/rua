@@ -37,7 +37,18 @@ httpx==0.28.1
 # --- DNS posture checks (_dmarc, SPF, DKIM selectors, _mta-sts, _smtp._tls) ---
 dnspython==2.8.0
 
-# NOTE: parsedmarc is introduced at milestone 4, not here. It pulls boto3,
-# elasticsearch, kafka-python and opensearch-py as mandatory (non-extra)
-# dependencies — output backends this project will never use. See the note in
-# CONTRIBUTING.md before adding it.
+# --- Report parsing ---
+# Aggregate reports are attacker-influenced input: anyone can send mail that
+# causes a third party to generate a report about your domain. Python's stdlib
+# ElementTree does not resolve external entities, but it IS vulnerable to
+# entity-expansion ("billion laughs"). defusedxml closes that, in 74 KB with no
+# dependencies of its own.
+defusedxml==0.7.1
+
+# NOTE ON parsedmarc — deliberately NOT a dependency. See rua/reports/__init__.py
+# for the full reasoning. In short: it declares boto3, elasticsearch,
+# kafka-python, opensearch-py and azure-monitor-ingestion as mandatory rather
+# than extras (~28 MB of output backends this project will never use), and its
+# parser defaults to `offline=False`, performing reverse-DNS lookups per source
+# IP and optionally fetching a map over HTTP — outbound calls the operator did
+# not configure, which the README promises never happen.

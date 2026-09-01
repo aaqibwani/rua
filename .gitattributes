@@ -14,7 +14,10 @@ Dockerfile      text eol=lf
 *.mako          text eol=lf
 .env.example    text eol=lf
 
-# Test fixtures are byte-exact captures of real reports; never touch them.
-tests/fixtures/**   -text -diff
+# Fixtures are byte-exact: `-text` keeps git from normalising line endings, which
+# would change what the parser actually sees. `-diff` is deliberately NOT set —
+# a redacted report is the most useful thing in a review, and marking it binary
+# would hide it.
+tests/fixtures/**   -text
 *.gz            binary
 *.zip           binary

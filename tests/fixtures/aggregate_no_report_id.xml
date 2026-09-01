@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<feedback>
+  <report_metadata>
+    <org_name>smalltown-isp.example</org_name>
+    <date_range><begin>1767225600</begin><end>1767311999</end></date_range>
+  </report_metadata>
+  <policy_published><domain>litware.co.uk</domain><p>none</p></policy_published>
+  <record>
+    <row>
+      <source_ip>203.0.113.19</source_ip><count>5</count>
+      <policy_evaluated><disposition>none</disposition><dkim>fail</dkim><spf>pass</spf></policy_evaluated>
+    </row>
+    <identifiers><header_from>litware.co.uk</header_from></identifiers>
+  </record>
+</feedback>

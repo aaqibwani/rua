@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<feedback>
+  <report_metadata>
+    <org_name>quirky-receiver.example</org_name>
+    <report_id>odd-records-0001</report_id>
+    <date_range><begin>1767225600</begin><end>1767311999</end></date_range>
+  </report_metadata>
+  <policy_published><domain>tailspin.com</domain><p>reject</p></policy_published>
+  <record>
+    <row><source_ip>not-an-ip-address</source_ip><count>10</count>
+      <policy_evaluated><disposition>none</disposition></policy_evaluated></row>
+    <identifiers><header_from>tailspin.com</header_from></identifiers>
+  </record>
+  <record>
+    <row><source_ip>192.0.2.44</source_ip><count>not-a-number</count>
+      <policy_evaluated><disposition>none</disposition></policy_evaluated></row>
+    <identifiers><header_from>tailspin.com</header_from></identifiers>
+  </record>
+  <record>
+    <identifiers><header_from>tailspin.com</header_from></identifiers>
+  </record>
+  <record>
+    <row><source_ip>192.0.2.55</source_ip><count>77</count>
+      <policy_evaluated><disposition>bizarre</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row>
+    <identifiers><header_from>tailspin.com</header_from></identifiers>
+  </record>
+  <record>
+    <row><source_ip>192.0.2.66</source_ip><count>21</count>
+      <policy_evaluated><disposition>reject</disposition><dkim>fail</dkim><spf>fail</spf></policy_evaluated></row>
+  </record>
+</feedback>

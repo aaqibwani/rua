@@ -1,0 +1,26 @@
+{
+  "organization-name": "Google Inc.",
+  "date-range": {
+    "start-datetime": "2026-01-01T00:00:00Z",
+    "end-datetime": "2026-01-01T23:59:59Z"
+  },
+  "contact-info": "smtp-tls-reporting@google.com",
+  "report-id": "2026-01-01T00:00:00Z_fabrikam.com",
+  "policies": [
+    {
+      "policy": {
+        "policy-type": "sts",
+        "policy-string": ["version: STSv1", "mode: enforce", "mx: *.fabrikam.com", "max_age: 604800"],
+        "policy-domain": "fabrikam.com",
+        "mx-host": ["*.fabrikam.com"]
+      },
+      "summary": {"total-successful-session-count": 5218, "total-failure-session-count": 12},
+      "failure-details": [
+        {"result-type": "certificate-expired", "sending-mta-ip": "209.85.220.41",
+         "receiving-mx-hostname": "mx1.fabrikam.com", "failed-session-count": 9},
+        {"result-type": "starttls-not-supported", "sending-mta-ip": "209.85.220.42",
+         "receiving-mx-hostname": "mx2.fabrikam.com", "failed-session-count": 3}
+      ]
+    }
+  ]
+}
