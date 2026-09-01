@@ -6,15 +6,24 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
-RUN python -m venv /venv && /venv/bin/pip install -r requirements.txt
+# setuptools and wheel are installed explicitly so that the package build below
+# can run without network access. See the --no-build-isolation note there.
+RUN python -m venv /venv \
+    && /venv/bin/pip install --upgrade "setuptools>=77" wheel \
+    && /venv/bin/pip install -r requirements.txt
 # Install the package itself so the `rua` console script exists in /venv/bin.
 # Without this the runtime CMD below fails with "rua: not found": installing
 # requirements.txt brings in the dependencies but never the application.
-# --no-deps because requirements.txt is the single source of truth for versions;
-# pyproject.toml deliberately declares no runtime dependencies.
+#
+# --no-deps: requirements.txt is the single source of truth for versions, and
+#   pyproject.toml deliberately declares no runtime dependencies.
+# --no-build-isolation: PEP 517 otherwise builds in a throwaway environment and
+#   downloads the newest setuptools from PyPI mid-build. That makes the image
+#   depend on whatever was released today, and it fails outright on any network
+#   that inspects TLS. The setuptools installed above is used instead.
 COPY pyproject.toml README.md LICENSE NOTICE ./
 COPY rua ./rua
-RUN /venv/bin/pip install --no-deps .
+RUN /venv/bin/pip install --no-deps --no-build-isolation .
 
 FROM python:3.12-slim AS runtime
 WORKDIR /app

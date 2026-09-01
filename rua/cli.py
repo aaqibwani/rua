@@ -17,6 +17,7 @@ import sys
 from collections.abc import Sequence
 
 from rua import __version__
+from rua.seed import DEFAULT_DEMO_MAILBOX, DEFAULT_TENANT_PREFIX
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -37,6 +38,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("scheduler", help="Run the ingestion and domain-sync scheduler.")
+
+    seed = sub.add_parser("seed", help="Load sample data.")
+    seed.add_argument(
+        "--demo",
+        action="store_true",
+        help="Load the deterministic 60-domain demo dataset. Idempotent.",
+    )
+    seed.add_argument(
+        "--tenant-prefix",
+        default=DEFAULT_TENANT_PREFIX,
+        help="Prefix for the <prefix>.onmicrosoft.com tenant row (default: %(default)s).",
+    )
+    seed.add_argument(
+        "--mailbox",
+        default=DEFAULT_DEMO_MAILBOX,
+        help="Mailbox the demo rua= tags point at (default: %(default)s).",
+    )
 
     return parser
 
@@ -94,6 +112,31 @@ def _scheduler() -> int:
     return 0
 
 
+def _seed(demo: bool, tenant_prefix: str, mailbox: str) -> int:
+    from rua.config import get_settings
+    from rua.db import session_scope
+    from rua.logging import configure_logging, get_logger
+    from rua.seed import seed_demo
+
+    if not demo:
+        print(
+            "Nothing to seed. Pass --demo to load the deterministic 60-domain "
+            "demo dataset; it is currently the only dataset.",
+            file=sys.stderr,
+        )
+        return 2
+
+    configure_logging(get_settings().log_level)
+    log = get_logger("rua.seed")
+
+    with session_scope() as session:
+        created, updated = seed_demo(session, tenant_prefix=tenant_prefix, mailbox=mailbox)
+
+    log.info("seed_demo_written", created=created, updated=updated)
+    print(f"Seeded demo data: {created} created, {updated} updated.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point for the ``rua`` console script."""
     args = _build_parser().parse_args(argv)
@@ -102,6 +145,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _serve(args.host, args.port, args.reload)
     if args.command == "scheduler":
         return _scheduler()
+    if args.command == "seed":
+        return _seed(args.demo, args.tenant_prefix, args.mailbox)
 
     # argparse's required=True makes this unreachable; kept so the function has a
     # total return rather than an implicit None.

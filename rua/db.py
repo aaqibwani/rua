@@ -36,6 +36,13 @@ def get_engine() -> Engine:
     settings = get_settings()
     return create_engine(
         settings.database_url,
+        # Fail fast instead of blocking forever. Without this, an unreachable
+        # host leaves psycopg parked in a blocking connect: /healthz never
+        # answers, so the container healthcheck times out rather than reporting
+        # 503, and `rua scheduler` hangs silently instead of logging. It also
+        # bites on Windows, where `localhost` can resolve to ::1 while the
+        # server only listens on 127.0.0.1.
+        connect_args={"connect_timeout": 10},
         # Recycle dead connections rather than failing a request after the
         # database restarts underneath a long-lived scheduler process.
         pool_pre_ping=True,

@@ -71,6 +71,34 @@ jobs:
         run: |
           alembic check
 
+      # Milestone 2's acceptance criterion, asserted against a real database
+      # rather than only in unit tests: exactly 60 domains, and a second run is
+      # a no-op.
+      - name: Seed is deterministic and idempotent
+        run: |
+          rua seed --demo
+          rua seed --demo
+          python - <<'PY'
+          from sqlalchemy import func, select
+          from rua.db import session_scope
+          from rua.models import Domain, Role
+
+          with session_scope() as s:
+              total = s.scalar(select(func.count()).select_from(Domain))
+              tenant = s.scalar(select(Domain).where(Domain.role == Role.TENANT))
+              mismatches = s.scalar(
+                  select(func.count()).select_from(Domain).where(Domain.rua_matches.is_(False))
+              )
+
+          assert total == 60, f"expected 60 domains after two seed runs, got {total}"
+          assert tenant is not None and tenant.name.endswith(".onmicrosoft.com")
+          assert {tenant.dmarc, tenant.spf, tenant.dkim, tenant.mtasts, tenant.tlsrpt} == {"na"}, (
+              "the tenant row must have every posture field na"
+          )
+          assert mismatches == 3, f"expected 3 rua= mismatches, got {mismatches}"
+          print(f"OK: {total} domains, tenant row all-na, {mismatches} rua= mismatches")
+          PY
+
       - run: pytest -q
 
   docker:

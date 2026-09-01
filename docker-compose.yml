@@ -46,6 +46,11 @@ services:
       POSTGRES_DB: rua
       POSTGRES_USER: rua
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # Loopback only. CONTRIBUTING.md tells contributors to `docker compose up
+    # postgres -d` and then run alembic and pytest from the host, which needs a
+    # reachable port; binding to 127.0.0.1 keeps it off every other interface.
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - rua-data:/var/lib/postgresql/data
     restart: unless-stopped
