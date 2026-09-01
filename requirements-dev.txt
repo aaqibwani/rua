@@ -1,0 +1,10 @@
+# Development and CI dependencies. Installs the runtime set as well.
+
+-r requirements.txt
+
+ruff==0.16.4
+pytest==9.1.1
+pytest-asyncio==1.4.0
+
+# httpx is already a runtime dependency; it doubles as the FastAPI test client
+# transport, so it is not repeated here.

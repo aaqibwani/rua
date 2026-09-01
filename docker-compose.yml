@@ -1,0 +1,59 @@
+# `docker compose up -d` builds the image locally and starts all three services.
+#
+# `image:` doubles as the tag for a local build and as the pull target for a
+# deployment that wants the published image. Once ghcr.io/aaqibwani/rua:latest
+# exists, `docker compose pull` replaces the local build.
+
+services:
+  api:
+    build: .
+    image: ghcr.io/aaqibwani/rua:latest
+    command: rua serve --host 0.0.0.0 --port 8080
+    env_file: .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  scheduler:
+    build: .
+    image: ghcr.io/aaqibwani/rua:latest
+    command: rua scheduler
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # Both services share one image, so the scheduler inherits the Dockerfile's
+    # HEALTHCHECK — which curls /healthz. The scheduler serves no HTTP, so that
+    # probe fails forever and the container is marked unhealthy after ~90s.
+    # There is nothing to probe yet: liveness is "the process has not exited",
+    # which `restart: unless-stopped` already handles. Revisit at milestone 4,
+    # when a failing ingestion run becomes a meaningful health signal.
+    healthcheck:
+      disable: true
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rua
+      POSTGRES_USER: rua
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - rua-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rua"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  rua-data:

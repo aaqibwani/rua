@@ -1,0 +1,20 @@
+# Normalise to LF in the repository. Windows checkouts may use CRLF locally, but
+# these files are read by Linux tooling inside the container, where a CR breaks
+# shell parsing and shebangs in ways that are tedious to diagnose.
+
+* text=auto eol=lf
+
+Dockerfile      text eol=lf
+*.sh            text eol=lf
+*.py            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.toml          text eol=lf
+*.ini           text eol=lf
+*.mako          text eol=lf
+.env.example    text eol=lf
+
+# Test fixtures are byte-exact captures of real reports; never touch them.
+tests/fixtures/**   -text -diff
+*.gz            binary
+*.zip           binary

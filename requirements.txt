@@ -1,0 +1,40 @@
+# Rua runtime dependencies.
+#
+# pip only. No Poetry, no uv, no lockfile tooling — this file is the manifest and
+# pyproject.toml deliberately carries no [project.dependencies], so there is exactly
+# one place to change a version.
+#
+# Pins are exact. Bump them deliberately, not incidentally.
+
+# --- Web ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+jinja2==3.1.6
+python-multipart==0.0.32
+
+# --- Persistence ---
+sqlalchemy==2.0.52
+alembic==1.19.1
+psycopg[binary]==3.3.4
+
+# --- Configuration and logging ---
+pydantic-settings==2.15.0
+structlog==26.1.0
+
+# --- Scheduling (ingestion poll, daily domain sync) ---
+apscheduler==3.11.3
+
+# --- Credential encryption (SECRET_KEY) and local admin password hashing ---
+cryptography==50.0.0
+argon2-cffi==25.1.0
+
+# --- Outbound: Graph token and mailbox calls, MTA-STS policy fetch, alert webhook ---
+httpx==0.28.1
+
+# --- DNS posture checks (_dmarc, SPF, DKIM selectors, _mta-sts, _smtp._tls) ---
+dnspython==2.8.0
+
+# NOTE: parsedmarc is introduced at milestone 4, not here. It pulls boto3,
+# elasticsearch, kafka-python and opensearch-py as mandatory (non-extra)
+# dependencies — output backends this project will never use. See the note in
+# CONTRIBUTING.md before adding it.

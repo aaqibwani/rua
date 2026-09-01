@@ -1,0 +1,3 @@
+Alembic writes revision files here. Kept in git so a fresh clone has the
+directory; `alembic revision` fails without it. Delete this file once the
+first migration lands (milestone 2).

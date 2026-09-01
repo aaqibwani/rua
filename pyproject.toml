@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rua"
+version = "0.1.0"
+description = "Self-hosted DMARC, SPF, DKIM, MTA-STS and TLS-RPT posture dashboard for one Microsoft 365 tenant"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Aaqib Iqbal Wani" }]
+keywords = ["dmarc", "spf", "dkim", "mta-sts", "tls-rpt", "microsoft-365", "email-authentication"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Email",
+    "Topic :: System :: Monitoring",
+]
+
+# Runtime dependencies live in requirements.txt, not here. Keeping them in one
+# place avoids the two-sources-of-truth problem; the Dockerfile installs
+# requirements.txt first, then this package with --no-deps.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/aaqibwani/rua"
+Source = "https://github.com/aaqibwani/rua"
+Issues = "https://github.com/aaqibwani/rua/issues"
+
+[project.scripts]
+rua = "rua.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rua*"]
+
+[tool.setuptools.package-data]
+rua = ["templates/**/*", "static/**/*"]
+
+# ─── ruff ────────────────────────────────────────────────────────────────────
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "W",    # warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "C4",   # comprehensions
+    "RUF",  # ruff-specific
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+# ─── pytest ──────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning:rua.*"]
