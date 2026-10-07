@@ -23,6 +23,7 @@ from rua.logging import configure_logging, get_logger
 from rua.middleware import SetupGateMiddleware
 from rua.paths import STATIC_DIR
 from rua.routes import pages_router, setup_router
+from rua.routes.pages import render_error
 from rua.security import SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, session_secret
 
 log = get_logger(__name__)
@@ -71,6 +72,9 @@ def create_app() -> FastAPI:
     app.include_router(pages_router)
     app.include_router(setup_router)
     app.include_router(api_router)
+
+    # Unhandled exceptions become the spec's error state rather than a bare 500.
+    app.add_exception_handler(Exception, render_error)
 
     # Order matters: middleware added last runs first, so the session must be
     # available by the time the setup gate looks at the request.

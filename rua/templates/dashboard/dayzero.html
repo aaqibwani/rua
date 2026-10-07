@@ -1,0 +1,85 @@
+{% extends "dashboard/shell.html" %}
+{% block title %}Waiting for first reports · Rua{% endblock %}
+
+{% block panel %}
+{#
+  Day zero (spec §7): shown until the first report from any domain is parsed,
+  then gone for good. Everything on it is true right now — polling status from
+  ingest_run, posture counts from DNS, rua= mismatches from DNS. Nothing here
+  pretends to be a metric.
+#}
+<section class="panel">
+  <div class="panel__body">
+    <h1 class="dz__title">Ingestion is running. No reports yet.</h1>
+    <p class="muted dz__blurb">
+      Receivers send DMARC aggregate reports on their own schedule, usually once a day and
+      usually within 24 hours of the first mail they see from a domain. The first report can
+      take up to 72 hours. Until one arrives, volume, pass rates and TLS reasons stay empty
+      — but everything DNS can tell you is already below.
+    </p>
+    <div class="dz__facts">
+      <div class="dz__fact">
+        <div class="dz__k">Last poll</div>
+        <div class="dz__v">{{ relative_age(last_poll) if last_poll else 'not yet' }}</div>
+        {% if last_outcome and last_outcome != 'success' %}<div class="dz__n" data-tone="warn">outcome: {{ last_outcome }}</div>{% else %}<div class="dz__n">mailbox read{% if last_outcome %} · {{ last_outcome }}{% endif %}</div>{% endif %}
+      </div>
+      <div class="dz__fact">
+        <div class="dz__k">Next poll</div>
+        <div class="dz__v">{% if next_poll %}{{ next_poll.strftime('%H:%M') }} UTC{% else %}within {{ poll_minutes }} min{% endif %}</div>
+        <div class="dz__n">every {{ poll_minutes }} minutes</div>
+      </div>
+      <div class="dz__fact">
+        <div class="dz__k">Reports parsed</div>
+        <div class="dz__v">{{ reports_parsed }}</div>
+        <div class="dz__n">this page disappears at 1</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel__head">
+    <h2 class="panel__title">What we already know from DNS</h2>
+    <span class="panel__caption">{{ counts.protected + counts.partial + counts.gaps + counts.na }} verified domains, checked today</span>
+    <div class="spacer"></div>
+    <a class="panel__link" href="/domains?days={{ win.days }}">Open the Domains table →</a>
+  </div>
+  <div class="dz__counts">
+    <div class="dz__count"><div class="dz__big" data-tone="ok">{{ counts.protected }}</div><div class="dz__label">Protected</div><div class="dz__note">p=reject, SPF -all, both DKIM selectors, MTA-STS enforce, TLS-RPT</div></div>
+    <div class="dz__count"><div class="dz__big" data-tone="warn">{{ counts.partial }}</div><div class="dz__label">Partial</div><div class="dz__note">every signal present, at least one weak</div></div>
+    <div class="dz__count"><div class="dz__big" data-tone="gap">{{ counts.gaps }}</div><div class="dz__label">Gaps</div><div class="dz__note">at least one signal not configured</div></div>
+    <div class="dz__count"><div class="dz__big" data-tone="na">{{ counts.na }}</div><div class="dz__label">Not applicable</div><div class="dz__note">the tenant default domain</div></div>
+  </div>
+  <div class="panel__foot">Volume, pass rates and TLS failure reasons need reports. Posture does not.</div>
+</section>
+
+{% if mismatches %}
+<section class="panel panel--danger">
+  <div class="panel__head">
+    <h2 class="panel__title" data-tone="gap">
+      {% set n = mismatches|length %}
+      {{ {1: 'One domain', 2: 'Two domains', 3: 'Three domains'}.get(n, n ~ ' domains') }} will never send you a report
+    </h2>
+    <span class="panel__caption">their rua= tag points somewhere else</span>
+  </div>
+  <div class="mm" role="table">
+    <div class="mm__head" role="row"><div>Domain</div><div>rua= found in DNS</div><div></div></div>
+    {% for d in mismatches %}
+      <div class="mm__row" role="row">
+        <div><a class="mm__domain" href="/domains/{{ d.name }}?days={{ win.days }}">{{ d.name }}</a></div>
+        <div class="mono mm__value">{{ d.rua_value }}</div>
+        <div><a class="panel__link" href="https://github.com/aaqibwani/rua#what-you-need-first">Docs</a></div>
+      </div>
+    {% endfor %}
+  </div>
+  <div class="panel__foot">Adding this mailbox to a <span class="mono">rua=</span> tag is a manual DNS change. Rua never edits records.</div>
+</section>
+{% endif %}
+
+<div class="dz__footer">
+  <span class="muted">This page disappears once the first report lands.</span>
+  <div class="spacer"></div>
+  <a class="btn btn--outlined" href="/settings/ingestion?days={{ win.days }}">Ingestion log</a>
+  <a class="btn btn--contained" href="/overview?days={{ win.days }}">Go to the dashboard</a>
+</div>
+{% endblock %}

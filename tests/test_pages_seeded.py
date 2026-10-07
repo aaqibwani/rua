@@ -64,7 +64,7 @@ def test_unknown_domain_is_a_404_page(seeded) -> None:
 
 def test_window_is_global_and_travels_on_every_link(seeded) -> None:
     html = seeded.get("/sources?days=90").text
-    for href in ("/?days=90", "/domains?days=90", "/tls?days=90"):
+    for href in ("/overview?days=90", "/domains?days=90", "/tls?days=90"):
         assert f'href="{href}"' in html, href
     assert 'aria-current="true">90d' in html
 

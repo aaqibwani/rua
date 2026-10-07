@@ -1,0 +1,36 @@
+{% extends "dashboard/shell.html" %}
+{% block title %}Ingestion log · Rua{% endblock %}
+
+{% block panel %}
+<nav class="crumbs"><a href="/?days={{ win.days }}">Overview</a> / Settings / Ingestion log</nav>
+<section class="panel">
+  <div class="panel__head">
+    <h1 class="panel__title">Ingestion log</h1>
+    <span class="panel__caption">every mailbox poll, newest first · last {{ runs|length }} runs</span>
+  </div>
+  {% if runs %}
+    <div class="ltable" role="table">
+      <div class="ltable__head" role="row">
+        <div class="th">Started</div><div class="th">Outcome</div><div class="th th--right">Messages</div><div class="th th--right">Parsed</div><div class="th th--right">Failed</div><div class="th">Detail</div>
+      </div>
+      {% for r in runs %}
+        <div class="lrow" role="row" data-outcome="{{ r.outcome.value }}">
+          <div class="mono">{{ r.started_at.strftime('%Y-%m-%d %H:%M') }} UTC</div>
+          <div><span class="pill" data-tone="{{ {'success': 'ok', 'partial': 'warn', 'failure': 'gap'}[r.outcome.value] }}">{{ r.outcome.value }}</span></div>
+          <div class="num">{{ r.messages_seen }}</div>
+          <div class="num">{{ r.reports_parsed }}</div>
+          <div class="num">{{ r.reports_failed }}</div>
+          <div class="lrow__detail">{{ r.error_text or '' }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      <div class="empty__title">No runs yet</div>
+      <div class="empty__line">The scheduler writes a row here every time it polls the mailbox, whether or not it succeeds.</div>
+      <div class="empty__line">If this stays empty, the scheduler container is not running.</div>
+      <div class="empty__endpoint">rua scheduler</div>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

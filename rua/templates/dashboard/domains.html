@@ -24,5 +24,25 @@
   <div id="domains-table-slot" aria-live="polite">
     {% include "dashboard/_domains_table.html" %}
   </div>
+
+  {# Loading state (spec, Interactions): skeletons in the shape of the real rows.
+     Only the table fragment ever loads asynchronously; the island shows this
+     when a fetch takes longer than a blink. #}
+  <template id="domains-skeleton">
+    <div class="dtable dtable--skeleton" aria-hidden="true">
+      <div class="dtable__scroll"><div class="dtable__inner">
+        <div class="dtable__head"></div>
+        {% for _ in range(14) %}
+        <div class="drow drow--skeleton">
+          <div></div>
+          <div class="drow__name"><span class="skel skel--text" style="width: {{ 40 + (loop.index * 7) % 45 }}%"></span></div>
+          {% for _ in range(5) %}<div class="drow__cell"><span class="skel skel--pill"></span></div>{% endfor %}
+          <div class="drow__vol"><span class="skel skel--text" style="width: 40px"></span></div>
+          <div></div>
+        </div>
+        {% endfor %}
+      </div></div>
+    </div>
+  </template>
 </section>
 {% endblock %}

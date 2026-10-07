@@ -20,7 +20,7 @@ import datetime as dt
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,11 +29,20 @@ from rua import __version__, api, presentation
 from rua import settings_store as store
 from rua.config import get_settings
 from rua.db import get_session
-from rua.models import Domain, Role
+from rua.logging import get_logger
+from rua.models import Domain, IngestRun, Role
 from rua.paths import TEMPLATES_DIR
-from rua.queries import DEFAULT_WINDOW_DAYS, WINDOW_DAYS, Window, window
+from rua.queries import (
+    DEFAULT_WINDOW_DAYS,
+    WINDOW_DAYS,
+    Window,
+    domain_posture_counts,
+    rua_mismatches,
+    window,
+)
 from rua.settings_store import is_demo_mode, is_setup_complete
 
+log = get_logger(__name__)
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals.update(
@@ -50,6 +59,7 @@ templates.env.globals.update(
     readiness_advice=presentation.readiness_advice,
     promotion_target=presentation.promotion_target,
     SIGNAL_NAMES=presentation.SIGNAL_NAMES,
+    relative_age=presentation.relative_age,
 )
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -58,7 +68,7 @@ PAGE_SIZE = 14
 SORT_KEYS = ("name", "dmarc", "spf", "dkim", "mtasts", "tlsrpt", "volume")
 
 TABS = (
-    ("overview", "Overview", "/"),
+    ("overview", "Overview", "/overview"),
     ("sources", "Sources", "/sources"),
     ("domains", "Domains", "/domains"),
     ("tls", "TLS", "/tls"),
@@ -89,24 +99,56 @@ def _tenant_name(session: Session) -> str:
     return "no tenant yet"
 
 
-def _ingest_pill(summary: api.OverviewSummaryResponse, demo: bool) -> dict[str, str]:
-    """The header pill: a word and a dot tone. Stale detection proper is milestone 8."""
+STALE_AFTER_INTERVALS = 2
+
+
+def _staleness(summary: api.OverviewSummaryResponse, demo: bool) -> dict[str, Any] | None:
+    """Is the data older than it should be? None when it is not.
+
+    Stale means no *successful* poll within two ingestion intervals. A failed
+    run is not fresh data, so the age is measured from the last success, and
+    the banner names that age rather than a status code. Demo mode is never
+    stale: nothing is being polled.
+    """
+    if demo or not summary.has_reports:
+        return None
+    last = summary.ingest.last_success_at
+    minutes = get_settings().ingest_interval_minutes
+    now = dt.datetime.now(dt.UTC)
+    if last is None:
+        return {
+            "age": "never",
+            "text": "Ingestion has never completed successfully.",
+            "last_outcome": summary.ingest.last_outcome,
+        }
+    if now - last <= STALE_AFTER_INTERVALS * dt.timedelta(minutes=minutes):
+        return None
+    age = presentation.relative_age(last, now)
+    return {
+        "age": age,
+        "text": f"The last successful poll was {age}; polls run every {minutes} minutes.",
+        "last_outcome": summary.ingest.last_outcome,
+    }
+
+
+def _ingest_pill(
+    summary: api.OverviewSummaryResponse, demo: bool, stale: dict[str, Any] | None
+) -> dict[str, str]:
+    """The header pill: a word and a dot tone. Amber whenever something is off."""
     if demo:
         return {"text": "Sample data", "tone": "ok"}
     if not summary.has_reports:
         return {"text": "Waiting for first reports", "tone": "warn"}
-    last = summary.ingest.last_success_at
-    if last is None:
-        return {"text": "Ingestion has not run", "tone": "warn"}
-    interval = dt.timedelta(minutes=get_settings().ingest_interval_minutes)
-    fresh = dt.datetime.now(dt.UTC) - last <= 2 * interval
-    age = presentation.relative_age(last)
-    return {"text": f"Last poll {age}", "tone": "ok" if fresh else "warn"}
+    if stale is not None:
+        return {"text": "Stale: last success " + stale["age"], "tone": "warn"}
+    age = presentation.relative_age(summary.ingest.last_success_at)
+    return {"text": f"Last poll {age}", "tone": "ok"}
 
 
 def _shell(request: Request, session: Session, win: Window, tab: str) -> dict[str, Any]:
     summary = api.overview_summary(session, win)
     demo = is_demo_mode(session) and not is_setup_complete(session)
+    stale = _staleness(summary, demo)
     return {
         "version": __version__,
         "tab": tab,
@@ -118,9 +160,11 @@ def _shell(request: Request, session: Session, win: Window, tab: str) -> dict[st
         "window_options": WINDOW_DAYS,
         "tenant_name": _tenant_name(session),
         "demo_mode": demo,
-        "pill": _ingest_pill(summary, demo),
+        "pill": _ingest_pill(summary, demo, stale),
+        "stale": stale,
         "summary": summary,
         "path": request.url.path,
+        "day_zero": not summary.has_reports and not demo,
     }
 
 
@@ -223,13 +267,103 @@ TableParams = Annotated[dict[str, Any], Depends(_table_params)]
 
 
 @router.get("/", response_class=HTMLResponse, name="home")
-def overview(request: Request, session: SessionDep, win: WindowDep) -> Response:
+def home(request: Request, session: SessionDep, win: WindowDep) -> Response:
+    """The waiting page until the first report parses, then the Overview, for good.
+
+    The switch is on the data, not on a flag, so it cannot be left behind: the
+    moment ``has_report_data`` is true the page is the Overview, and there is no
+    stale banner to clean up because the banner never belonged to this page.
+    """
     ctx = _shell(request, session, win, "overview")
+    if ctx["day_zero"]:
+        return _render(request, "dashboard/dayzero.html", _day_zero(session, ctx))
+    return _overview(request, session, win, ctx)
+
+
+@router.get("/overview", response_class=HTMLResponse, name="overview_page")
+def overview(request: Request, session: SessionDep, win: WindowDep) -> Response:
+    """The Overview even on day zero: the waiting page's "Go to the dashboard" lands here."""
+    return _overview(request, session, win, _shell(request, session, win, "overview"))
+
+
+def _overview(request: Request, session: Session, win: Window, ctx: dict[str, Any]) -> Response:
     trend = api.overview_trend(session, win)
     ctx["trend"] = trend
     ctx["chart"] = _chart_geometry(trend)
     ctx["attention"] = _needs_attention(session, win)
     return _render(request, "dashboard/overview.html", ctx)
+
+
+def _day_zero(session: Session, ctx: dict[str, Any]) -> dict[str, Any]:
+    """Facts for the waiting page: polling status, DNS counts, rua= mismatches."""
+    ingest = ctx["summary"].ingest
+    minutes = get_settings().ingest_interval_minutes
+    next_poll = ingest.last_run_at + dt.timedelta(minutes=minutes) if ingest.last_run_at else None
+    ctx.update(
+        counts=domain_posture_counts(session),
+        mismatches=rua_mismatches(session),
+        last_poll=ingest.last_run_at,
+        last_outcome=ingest.last_outcome,
+        next_poll=next_poll,
+        reports_parsed=ingest.reports_parsed_total,
+        poll_minutes=minutes,
+    )
+    return ctx
+
+
+@router.get("/settings/ingestion", response_class=HTMLResponse, name="ingestion_log")
+def ingestion_log(request: Request, session: SessionDep, win: WindowDep) -> Response:
+    """The ingestion log: every run, newest first. The error state's "view log" lands here."""
+    ctx = _shell(request, session, win, "settings")
+    ctx["runs"] = list(
+        session.scalars(select(IngestRun).order_by(IngestRun.started_at.desc()).limit(100))
+    )
+    return _render(request, "dashboard/ingestion_log.html", ctx)
+
+
+# ─── Error state ─────────────────────────────────────────────────────────────
+
+
+async def render_error(request: Request, exc: Exception) -> Response:
+    """The error state for any page that failed to build.
+
+    Registered on the app for unhandled exceptions. API paths get JSON; pages
+    get the spec's error panel: what failed, the request that failed, and a
+    way to retry or read the ingestion log. The shell is rendered without a
+    database round-trip, because the database is the likeliest thing to be
+    broken.
+    """
+    log.error("page_failed", path=request.url.path, error_type=type(exc).__name__)
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": "Internal error", "path": request.url.path}, status_code=500)
+
+    raw = request.query_params.get("days", "")
+    win = window(int(raw) if raw.isdigit() and int(raw) in WINDOW_DAYS else DEFAULT_WINDOW_DAYS)
+    target = request.url.path + ("?" + request.url.query if request.url.query else "")
+    return templates.TemplateResponse(
+        request,
+        "dashboard/error.html",
+        {
+            "version": __version__,
+            "tab": None,
+            "tabs": [
+                {"key": key, "label": label, "href": f"{path}?days={win.days}"}
+                for key, label, path in TABS
+            ],
+            "win": win,
+            "window_options": WINDOW_DAYS,
+            "tenant_name": "",
+            "demo_mode": False,
+            "pill": {"text": "Error", "tone": "warn"},
+            "stale": None,
+            "day_zero": False,
+            "path": request.url.path,
+            "request_line": f"GET {target}",
+            "retry_href": target,
+            "error_type": type(exc).__name__,
+        },
+        status_code=500,
+    )
 
 
 @router.get("/domains", response_class=HTMLResponse, name="domains_page")

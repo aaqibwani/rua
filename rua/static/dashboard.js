@@ -41,17 +41,26 @@
       return p.toString();
     }
 
+    const skeleton = document.getElementById("domains-skeleton");
     let inflight = null;
+    let skeletonTimer = null;
     async function refresh(push) {
       if (inflight) inflight.abort();
       inflight = new AbortController();
       slot.setAttribute("aria-busy", "true");
+      // Skeletons only if the fetch is slow enough to notice; a flash of
+      // placeholder on a 30ms response is worse than nothing.
+      clearTimeout(skeletonTimer);
+      skeletonTimer = setTimeout(function () {
+        if (skeleton) slot.replaceChildren(skeleton.content.cloneNode(true));
+      }, 150);
       try {
         const res = await fetch(fragment + "?" + query(), {
           signal: inflight.signal,
           headers: { Accept: "text/html" },
         });
         if (!res.ok) throw new Error(String(res.status));
+        clearTimeout(skeletonTimer);
         slot.innerHTML = await res.text();
         const table = slot.querySelector("#domains-table");
         if (table) state.page = Number(table.dataset.page) || 0;
@@ -64,6 +73,7 @@
       } catch (err) {
         if (err.name !== "AbortError") form.submit(); // fall back to a full load
       } finally {
+        clearTimeout(skeletonTimer);
         slot.removeAttribute("aria-busy");
       }
     }

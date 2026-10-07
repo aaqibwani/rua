@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block subtitle %}{{ tenant_name }}{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', path='/dashboard.css') }}">{% endblock %}
+{% block styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/states.css') }}">
+{% endblock %}
 
 {% block headerright %}
   {% if demo_mode %}
@@ -34,6 +37,13 @@
 
 <div class="content">
   <div class="content__inner">
+    {% if stale %}
+      <div class="alert alert--warning" role="status">
+        <strong>Data may be stale.</strong> {{ stale.text }}
+        {% if stale.last_outcome and stale.last_outcome != 'success' %}The most recent run ended in <span class="mono">{{ stale.last_outcome }}</span>.{% endif %}
+        <a class="alert__link" href="/settings/ingestion?days={{ win.days }}">Ingestion log</a>
+      </div>
+    {% endif %}
     {% block panel %}{% endblock %}
   </div>
 </div>

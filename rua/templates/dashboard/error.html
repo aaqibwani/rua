@@ -1,0 +1,22 @@
+{% extends "dashboard/shell.html" %}
+{% block title %}Error · Rua{% endblock %}
+
+{% block panel %}
+<div class="alert alert--error" role="alert">This page could not be built. The data behind it did not load.</div>
+<section class="panel">
+  <div class="panel__body">
+    <h1 class="dz__title">Something failed while building this page</h1>
+    <p class="muted dz__blurb">
+      Most often the database is unreachable or a query timed out. The error type was
+      <span class="mono">{{ error_type }}</span>; the full detail is in the container logs,
+      never in this page, because this page is reachable from wherever the container is exposed.
+    </p>
+    <div class="error-box mono">{{ request_line }}</div>
+    <div class="row" style="margin-top: 12px;">
+      <a class="btn btn--contained" href="{{ retry_href }}">Retry</a>
+      <a class="btn btn--outlined" href="/settings/ingestion?days={{ win.days }}">View ingestion log</a>
+      <a class="btn btn--text" href="/healthz">/healthz</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

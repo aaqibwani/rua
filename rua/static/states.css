@@ -1,0 +1,65 @@
+/* States (milestone 8): stale banner, error panel, day-zero waiting page,
+   ingestion log, loading skeletons. Loaded by the dashboard shell. */
+
+.alert__link { margin-left: auto; color: inherit; font-weight: 700; white-space: nowrap; }
+.error-box {
+  background: rgba(221, 34, 34, 0.08); border: 1px solid rgba(221, 34, 34, 0.2); border-radius: 2px;
+  padding: 8px 10px; font-size: 11px; white-space: nowrap; overflow-x: auto; margin-top: 12px;
+}
+
+/* ── Day zero ──────────────────────────────────────────────────────────── */
+
+.dz__title { font-size: 20px; line-height: 26px; font-weight: 700; margin: 0; }
+.dz__blurb { max-width: 640px; margin: 6px 0 16px; }
+.dz__facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.dz__fact { border-left: 2px solid var(--divider-light); padding-left: 12px; }
+.dz__k { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.dz__v { font-size: 16px; line-height: 22px; font-weight: 700; margin-top: 2px; }
+.dz__n { font-size: 11px; color: var(--text-muted); }
+.dz__n[data-tone="warn"] { color: var(--warn-fg); }
+
+.dz__counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--divider-light); }
+.dz__count { background: var(--surface-100); padding: 16px; }
+.dz__big { font-size: 24px; line-height: 30px; font-weight: 700; }
+.dz__big[data-tone="ok"] { color: var(--ok-base); }
+.dz__big[data-tone="warn"] { color: var(--warn-base); }
+.dz__big[data-tone="gap"] { color: var(--gap-base); }
+.dz__big[data-tone="na"] { color: var(--text-muted); }
+.dz__label { font-size: 12px; font-weight: 700; margin-top: 2px; }
+.dz__note { font-size: 11px; color: var(--text-muted); margin-top: 2px; text-wrap: pretty; }
+.dz__footer { display: flex; align-items: center; gap: 8px; padding: 4px 0 16px; }
+
+.panel--danger { border-color: rgba(221, 34, 34, 0.35); }
+.panel__title[data-tone="gap"] { color: var(--gap-fg); }
+.mm__head, .mm__row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr) 60px; gap: 12px; align-items: center; padding: 0 16px; }
+.mm__head { height: 28px; background: var(--table-header); font-size: 11px; font-weight: 700; }
+.mm__row { height: 34px; border-bottom: 1px solid var(--divider-light); }
+.mm__row:last-child { border-bottom: 0; }
+.mm__domain { color: inherit; text-decoration: none; font-weight: 700; }
+.mm__value { font-size: 11px; color: var(--gap-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Ingestion log ─────────────────────────────────────────────────────── */
+
+.ltable__head, .lrow { display: grid; grid-template-columns: 150px 90px 80px 70px 70px minmax(0, 1fr); gap: 8px; align-items: center; padding: 0 16px; }
+.ltable__head { height: 28px; background: var(--table-header); font-size: 11px; font-weight: 700; }
+.ltable__head .th { padding: 0; }
+.lrow { min-height: 34px; border-bottom: 1px solid var(--divider-light); font-size: 12px; }
+.lrow .mono { font-size: 11px; }
+.lrow__detail { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow[data-outcome="failure"] .lrow__detail { color: var(--gap-fg); }
+
+/* ── Loading skeletons ─────────────────────────────────────────────────── */
+
+.skel { display: inline-block; height: 12px; border-radius: 2px; background: rgba(60, 60, 60, 0.08); animation: shimmer 1.2s ease-in-out infinite; }
+.skel--pill { width: 72px; height: 20px; }
+.drow--skeleton { pointer-events: none; }
+@keyframes shimmer { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+@media (max-width: 768px) {
+  .dz__facts, .dz__counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mm__head, .mm__row { grid-template-columns: minmax(0, 1fr) 50px; }
+  .mm__value, .mm__head div:nth-child(2) { display: none; }
+  .ltable__head, .lrow { grid-template-columns: 130px 80px minmax(0, 1fr); }
+  .lrow .num, .ltable__head .th--right { display: none; }
+}
