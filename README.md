@@ -134,8 +134,8 @@ encrypted with `SECRET_KEY`; they never live in `.env`.
 | `BASE_URL` | `http://localhost:8080` | External URL, used for generated links |
 | `INGEST_INTERVAL_MINUTES` | `60` | Mailbox poll interval |
 | `DOMAIN_SYNC_HOUR` | `3` | UTC hour for the daily domain and DNS re-check. `rua sync-domains` runs it on demand |
-| `RETENTION_RAW_DAYS` | `90` | Raw report rows before rollup |
-| `RETENTION_ROLLUP_DAYS` | `730` | Daily aggregates before deletion |
+| `RETENTION_RAW_DAYS` | `90` | Raw report rows (with sending IPs) before rollup. TLS-RPT rows follow the same window |
+| `RETENTION_ROLLUP_DAYS` | `730` | Daily per-domain aggregates (no IPs) before deletion. Ingestion history too |
 | `ALERT_WEBHOOK_URL` | unset | Teams or Slack incoming webhook. Unset means no alerting |
 | `LOG_LEVEL` | `INFO` | Structured JSON to stdout |
 
@@ -143,6 +143,26 @@ encrypted with `SECRET_KEY`; they never live in `.env`.
 for screenshots and for looking around before your own reports arrive. `--domains-only`
 skips the reports. Demo report ids start with `demo:`; re-running replaces them and leaves
 real reports alone.
+
+## Retention and alerting
+
+Retention runs nightly, an hour after the domain sync, and on demand with `rua retention`.
+Raw report rows older than `RETENTION_RAW_DAYS` are rolled up into one row per domain per
+day — volume, aligned passes, and failures split by known versus unclassified sender, so the
+readiness score reads the same across the boundary — and then deleted. Rollups older than
+`RETENTION_ROLLUP_DAYS` are deleted. Shortening either window takes effect on the next run.
+Settings shows what is currently held and how old it is.
+
+With `ALERT_WEBHOOK_URL` set, two things post to it, and nothing else ever does:
+
+- **A new gap.** A signal that was configured at yesterday's DNS check is missing today: a
+  deleted DMARC record, a revoked DKIM selector. New domains do not alert, and a failed lookup
+  never does — the previous value is kept until a check succeeds.
+- **Ingestion failure.** The first failed mailbox poll after one that succeeded. One message
+  per outage, not one per hour.
+
+The payload is a title and a few lines of text naming the domains involved. No report
+content, no credentials, and the URL is never displayed in the UI.
 
 ## How posture is read
 

@@ -9,6 +9,7 @@
   {% if demo_mode %}
     <a class="hdr__link" href="{{ url_for('setup_root') }}">Back to setup</a>
   {% endif %}
+  <a class="hdr__link{% if tab == 'settings' %} hdr__link--current{% endif %}" href="/settings?days={{ win.days }}">Settings</a>
   <div class="ingest-pill" data-tone="{{ pill.tone }}">
     <span class="ingest-pill__dot" aria-hidden="true"></span>
     <span>{{ pill.text }}</span>

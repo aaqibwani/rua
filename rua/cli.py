@@ -39,6 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("scheduler", help="Run the ingestion and domain-sync scheduler.")
     sub.add_parser("sync-domains", help="Pull verified domains and re-check their DNS now.")
+    sub.add_parser("retention", help="Roll up and delete report data past its retention now.")
 
     seed = sub.add_parser("seed", help="Load sample data.")
     seed.add_argument(
@@ -122,6 +123,41 @@ def _domain_sync_job() -> None:
         log.exception("domain_sync_job_crashed", error_type=type(exc).__name__)
 
 
+def _retention_job() -> None:
+    """Nightly rollup and delete. Same crash rule as the other jobs."""
+    from rua.config import get_settings
+    from rua.db import session_scope
+    from rua.logging import get_logger
+    from rua.retention import run_retention
+
+    log = get_logger("rua.scheduler")
+    settings = get_settings()
+    try:
+        with session_scope() as session:
+            run_retention(session, settings.retention_raw_days, settings.retention_rollup_days)
+    except Exception as exc:
+        log.exception("retention_job_crashed", error_type=type(exc).__name__)
+
+
+def _retention_now() -> int:
+    """``rua retention``: the nightly job, on demand — after shortening a window, say."""
+    from rua.config import get_settings
+    from rua.db import session_scope
+    from rua.logging import configure_logging
+    from rua.retention import run_retention
+
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    with session_scope() as session:
+        r = run_retention(session, settings.retention_raw_days, settings.retention_rollup_days)
+    print(
+        f"Rolled up {r.days_rolled_up} days into {r.rollups_written} daily rows; deleted "
+        f"{r.raw_rows_deleted} raw rows, {r.tls_rows_deleted} TLS rows, "
+        f"{r.rollups_deleted} rollups older than {settings.retention_rollup_days} days."
+    )
+    return 0
+
+
 def _sync_domains_now() -> int:
     """``rua sync-domains``: the daily job, on demand.
 
@@ -189,8 +225,17 @@ def _scheduler() -> int:
         misfire_grace_time=6 * 3600,
     )
 
-    # Still to come:
-    #   M9 — nightly retention rollup and delete
+    scheduler.add_job(
+        _retention_job,
+        trigger="cron",
+        hour=(settings.domain_sync_hour + 1) % 24,
+        minute=0,
+        id="retention",
+        name="Roll up and delete report data past retention",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=6 * 3600,
+    )
 
     log.info(
         "scheduler_starting",
@@ -248,6 +293,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _serve(args.host, args.port, args.reload)
     if args.command == "scheduler":
         return _scheduler()
+    if args.command == "retention":
+        return _retention_now()
     if args.command == "sync-domains":
         return _sync_domains_now()
     if args.command == "seed":

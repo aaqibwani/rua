@@ -234,7 +234,7 @@ def test_domains_page_ships_a_skeleton_in_the_shape_of_the_table(client, clean_d
     assert html.count("drow--skeleton") == 14
 
 
-STATE_PAGES = ("/", "/overview", "/domains", "/sources", "/tls", "/settings/ingestion")
+STATE_PAGES = ("/", "/overview", "/domains", "/sources", "/tls", "/settings", "/settings/ingestion")
 
 
 @pytest.mark.parametrize("path", STATE_PAGES)

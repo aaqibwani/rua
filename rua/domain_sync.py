@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from rua import alerts
 from rua import settings_store as store
 from rua.graph import GraphClient, GraphCredentials, GraphError
 from rua.logging import get_logger
@@ -53,6 +54,8 @@ class SyncResult:
     unresolved: int = 0
     error_text: str | None = None
     skipped: list[str] = field(default_factory=list)
+    # Signals on existing domains that went from configured to missing this run.
+    new_gaps: list[alerts.GapTransition] = field(default_factory=list)
 
 
 def _credentials(session: Session) -> tuple[GraphCredentials, str] | None:
@@ -89,6 +92,8 @@ def run_domain_sync(
 
     result = check_domains(session, names, mailbox, resolver or DnsResolver())
     store.set_value(session, LAST_SYNC_AT, dt.datetime.now(dt.UTC).isoformat())
+    if result.new_gaps and alerts.alerting_enabled():
+        alerts.alert_new_gaps(result.new_gaps)
     return result
 
 
@@ -125,6 +130,7 @@ def check_domains(
             result.created += 1
         else:
             result.updated += 1
+            result.new_gaps.extend(_gap_transitions(domain, posture))
 
         _apply(domain, posture, now)
         if posture.unresolved:
@@ -141,6 +147,23 @@ def check_domains(
         skipped=len(result.skipped),
     )
     return result
+
+
+def _gap_transitions(domain: Domain, posture: Posture) -> list[alerts.GapTransition]:
+    """Signals that were configured on the stored row and are missing in the new check.
+
+    Called before ``_apply`` so the row still holds yesterday's values. Unresolved
+    signals are skipped: a timeout is not a gap.
+    """
+    out = []
+    for signal in ("dmarc", "spf", "dkim", "mtasts", "tlsrpt"):
+        if signal in posture.unresolved:
+            continue
+        previous = getattr(domain, signal).value
+        current = getattr(posture, signal)
+        if current == "missing" and previous not in ("missing", "na"):
+            out.append(alerts.GapTransition(domain=domain.name, signal=signal, previous=previous))
+    return out
 
 
 def _apply(domain: Domain, posture: Posture, now: dt.datetime) -> None:

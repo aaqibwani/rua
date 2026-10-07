@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from rua import alerts
 from rua import settings_store as store
 from rua.graph import GraphClient, GraphCredentials, GraphError, MailAttachment, MailMessage
 from rua.logging import get_logger
@@ -105,6 +106,9 @@ def run_ingestion(session: Session, client: GraphClient | None = None) -> Ingest
     tenant. Never raises for an operational failure: the outcome is returned and
     recorded, because the scheduler must not crash-loop on a bad credential.
     """
+    previous = session.scalar(
+        select(IngestRun.outcome).order_by(IngestRun.started_at.desc()).limit(1)
+    )
     run = IngestRun(outcome=IngestOutcome.FAILURE)
     session.add(run)
     session.flush()
@@ -128,6 +132,13 @@ def run_ingestion(session: Session, client: GraphClient | None = None) -> Ingest
         forensic_discarded=result.forensic_discarded,
         duplicates=result.duplicates_skipped,
     )
+    # One alert per outage: the first failure after a run that did not fail.
+    if (
+        result.outcome == IngestOutcome.FAILURE
+        and previous != IngestOutcome.FAILURE
+        and alerts.alerting_enabled()
+    ):
+        alerts.alert_ingest_failure(result.error_text)
     return result
 
 

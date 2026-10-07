@@ -1,0 +1,79 @@
+{% extends "dashboard/shell.html" %}
+{% block title %}Settings · Rua{% endblock %}
+
+{% block panel %}
+<nav class="crumbs"><a href="/?days={{ win.days }}">Overview</a> / Settings</nav>
+
+<div class="facts-grid">
+  <section class="panel">
+    <div class="panel__head"><h2 class="panel__title">Microsoft Graph</h2>
+      <span class="panel__caption">{% if setup_complete %}configured{% elif demo_mode %}sample data, not configured{% else %}not configured{% endif %}</span></div>
+    <div class="panel__body">
+      <div class="facts">
+        <div class="facts__row"><div class="facts__k">Tenant ID</div><div class="facts__v">{{ graph.tenant_id or '—' }}</div></div>
+        <div class="facts__row"><div class="facts__k">Client ID</div><div class="facts__v">{{ graph.client_id or '—' }}</div></div>
+        <div class="facts__row"><div class="facts__k">Report mailbox</div><div class="facts__v">{{ graph.mailbox or '—' }}</div></div>
+        <div class="facts__row"><div class="facts__k">Mailbox scoping</div><div class="facts__v">{{ {'rbac': 'RBAC for Applications', 'policy': 'Application access policy'}.get(graph.scoping, '—') }}</div></div>
+        <div class="facts__row"><div class="facts__k">Client secret</div><div class="facts__v">stored encrypted, never shown</div></div>
+      </div>
+      <div class="field__note">Credentials are entered in the wizard and encrypted with <span class="mono">SECRET_KEY</span>. Rotating that key invalidates them.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel__head"><h2 class="panel__title">Schedule</h2></div>
+    <div class="panel__body">
+      <div class="facts">
+        <div class="facts__row"><div class="facts__k">Mailbox poll</div><div class="facts__v">every {{ poll_minutes }} min</div></div>
+        <div class="facts__row"><div class="facts__k">Domain &amp; DNS sync</div><div class="facts__v">daily {{ '%02d'|format(sync_hour) }}:00 UTC</div></div>
+        <div class="facts__row"><div class="facts__k">Last domain sync</div><div class="facts__v">{{ last_sync[:16].replace('T', ' ') ~ ' UTC' if last_sync else 'not yet' }}</div></div>
+        <div class="facts__row"><div class="facts__k">Retention run</div><div class="facts__v">daily {{ '%02d'|format(retention_hour) }}:00 UTC</div></div>
+        <div class="facts__row"><div class="facts__k">Alerting</div><div class="facts__v">{% if alerting %}webhook configured{% else %}off — ALERT_WEBHOOK_URL unset{% endif %}</div></div>
+      </div>
+      <div class="field__note">Alerts fire on a signal that was configured yesterday and is missing today, and on the first failed poll after a successful one. The webhook URL is never displayed.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel__head"><h2 class="panel__title">Retention</h2>
+      <span class="panel__caption">raw {{ raw_days }} d · rollups {{ rollup_days }} d</span></div>
+    <div class="panel__body">
+      <div class="facts">
+        <div class="facts__row"><div class="facts__k">Raw report rows</div><div class="facts__v">{{ thousands(facts.raw_rows) }}{% if facts.oldest_raw %} · oldest {{ facts.oldest_raw }}{% endif %}</div></div>
+        <div class="facts__row"><div class="facts__k">Daily rollups</div><div class="facts__v">{{ thousands(facts.rollups) }}{% if facts.oldest_rollup %} · oldest {{ facts.oldest_rollup }}{% endif %}</div></div>
+        <div class="facts__row"><div class="facts__k">TLS result rows</div><div class="facts__v">{{ thousands(facts.tls_rows) }}</div></div>
+        <div class="facts__row"><div class="facts__k">Ingestion runs</div><div class="facts__v">{{ thousands(facts.ingest_runs) }}</div></div>
+      </div>
+      <div class="field__note">Raw rows carry sending IP addresses and are deleted after {{ raw_days }} days, surviving as per-domain daily aggregates without IPs for {{ rollup_days }} days. <span class="mono">rua retention</span> runs it now.</div>
+    </div>
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel__head">
+    <h2 class="panel__title">Ingestion log</h2>
+    <span class="panel__caption">latest {{ runs|length }} runs</span>
+    <div class="spacer"></div>
+    <a class="panel__link" href="/settings/ingestion?days={{ win.days }}">Full log →</a>
+  </div>
+  {% if runs %}
+    <div class="ltable" role="table">
+      <div class="ltable__head" role="row">
+        <div class="th">Started</div><div class="th">Outcome</div><div class="th th--right">Messages</div><div class="th th--right">Parsed</div><div class="th th--right">Failed</div><div class="th">Detail</div>
+      </div>
+      {% for r in runs %}
+        <div class="lrow" role="row" data-outcome="{{ r.outcome.value }}">
+          <div class="mono">{{ r.started_at.strftime('%Y-%m-%d %H:%M') }} UTC</div>
+          <div><span class="pill" data-tone="{{ {'success': 'ok', 'partial': 'warn', 'failure': 'gap'}[r.outcome.value] }}">{{ r.outcome.value }}</span></div>
+          <div class="num">{{ r.messages_seen }}</div>
+          <div class="num">{{ r.reports_parsed }}</div>
+          <div class="num">{{ r.reports_failed }}</div>
+          <div class="lrow__detail">{{ r.error_text or '' }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="panel__body muted">No runs yet. The scheduler writes a row here on every poll.</div>
+  {% endif %}
+</section>
+{% endblock %}

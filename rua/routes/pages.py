@@ -40,6 +40,7 @@ from rua.queries import (
     rua_mismatches,
     window,
 )
+from rua.retention import retention_facts
 from rua.settings_store import is_demo_mode, is_setup_complete
 
 log = get_logger(__name__)
@@ -309,6 +310,34 @@ def _day_zero(session: Session, ctx: dict[str, Any]) -> dict[str, Any]:
         poll_minutes=minutes,
     )
     return ctx
+
+
+@router.get("/settings", response_class=HTMLResponse, name="settings_page")
+def settings_page(request: Request, session: SessionDep, win: WindowDep) -> Response:
+    """What this deployment is configured to do, and what it holds. Secrets never appear."""
+    settings = get_settings()
+    ctx = _shell(request, session, win, "settings")
+    ctx.update(
+        facts=retention_facts(session),
+        raw_days=settings.retention_raw_days,
+        rollup_days=settings.retention_rollup_days,
+        retention_hour=(settings.domain_sync_hour + 1) % 24,
+        sync_hour=settings.domain_sync_hour,
+        poll_minutes=settings.ingest_interval_minutes,
+        alerting=settings.alerting_enabled,
+        graph={
+            "tenant_id": store.get(session, store.GRAPH_TENANT_ID),
+            "client_id": store.get(session, store.GRAPH_CLIENT_ID),
+            "mailbox": store.get(session, store.GRAPH_MAILBOX),
+            "scoping": store.get(session, store.SETUP_SCOPING_MODE),
+        },
+        last_sync=store.get(session, "domains.last_sync_at"),
+        setup_complete=is_setup_complete(session),
+        runs=list(
+            session.scalars(select(IngestRun).order_by(IngestRun.started_at.desc()).limit(10))
+        ),
+    )
+    return _render(request, "dashboard/settings.html", ctx)
 
 
 @router.get("/settings/ingestion", response_class=HTMLResponse, name="ingestion_log")
