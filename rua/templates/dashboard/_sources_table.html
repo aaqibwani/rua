@@ -1,0 +1,48 @@
+{#
+  The Sources table — the same markup on the Sources tab and in the drill-down.
+  Unclassified rows are tinted, marked and monospace because an unclassified
+  sender is its IP, and because "nobody has said what this is" deserves to look
+  different from "known".
+#}
+{% macro sources_table(rows, has_reports, endpoint) -%}
+<div class="stable" role="table" aria-label="Sources">
+  <div class="stable__head" role="row">
+    <div class="th-sev" aria-hidden="true"></div>
+    <div class="th">Source</div>
+    <div class="th th--right">Volume</div>
+    <div class="th th--right">SPF align</div>
+    <div class="th th--right">DKIM align</div>
+    <div class="th th--right">Classification</div>
+  </div>
+  {% for s in rows %}
+    {% set uncl = s.classification == 'unclassified' %}
+    <div class="srow{% if uncl %} srow--unclassified{% endif %}" role="row"
+         data-name="{{ s.name|lower }}" data-class="{{ s.classification }}">
+      <div class="srow__sev"><span class="sev" data-tone="{{ 'warn' if uncl else 'none' }}" aria-hidden="true"></span></div>
+      <div class="srow__name{% if uncl %} mono{% endif %}" role="cell">{{ s.name }}
+        {% if s.domain_count > 1 %}<span class="srow__domains">{{ s.domain_count }} domains</span>{% endif %}</div>
+      <div class="srow__n" role="cell">{{ compact(s.volume) }}</div>
+      <div class="srow__n{% if s.spf_alignment is not none and s.spf_alignment < 90 %} srow__n--low{% endif %}" role="cell">{{ percent(s.spf_alignment) }}</div>
+      <div class="srow__n{% if s.dkim_alignment is not none and s.dkim_alignment < 90 %} srow__n--low{% endif %}" role="cell">{{ percent(s.dkim_alignment) }}</div>
+      <div class="srow__class" role="cell"><span class="class-pill" data-class="{{ s.classification }}">{{ s.classification }}</span></div>
+    </div>
+  {% else %}
+    <div class="empty" data-empty-state>
+      {% if has_reports %}
+        <div class="empty__title">No sources in this window</div>
+        <div class="empty__line">Nothing was reported sending as this domain in the last window.</div>
+        <div class="empty__line">Widen the window, or check that the domain's rua= tag points here.</div>
+      {% else %}
+        <div class="empty__title">No reports yet</div>
+        <div class="empty__line">Sources come from DMARC aggregate reports, which receivers send daily.</div>
+        <div class="empty__line">The first usually arrives within 24 hours of setup.</div>
+      {% endif %}
+      <div class="empty__endpoint">{{ endpoint }}</div>
+    </div>
+  {% endfor %}
+  <div class="empty empty--filtered" hidden data-filter-empty>
+    <div class="empty__title">No sources match</div>
+    <div class="empty__line">Clear the filter or turn off "Unclassified only".</div>
+  </div>
+</div>
+{%- endmacro %}

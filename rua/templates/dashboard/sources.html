@@ -1,0 +1,20 @@
+{% extends "dashboard/shell.html" %}
+{% from "dashboard/_sources_table.html" import sources_table %}
+{% block title %}Sources · Rua{% endblock %}
+
+{% block panel %}
+<section class="panel" data-island="sources">
+  <div class="panel__head">
+    <h1 class="panel__title">Sources</h1>
+    <span class="panel__caption">Who is sending mail claiming your domains · last {{ win.days }} days</span>
+    <div class="spacer"></div>
+    <label class="switch">
+      <input type="checkbox" id="unclassified-only">
+      <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+      <span class="switch__label">Unclassified only</span>
+    </label>
+    <input class="search" type="search" id="source-filter" placeholder="Filter sources" aria-label="Filter sources" autocomplete="off">
+  </div>
+  {{ sources_table(sources.sources, sources.has_reports, 'GET /api/sources?days=' ~ win.days) }}
+</section>
+{% endblock %}

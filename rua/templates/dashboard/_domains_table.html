@@ -1,0 +1,91 @@
+{% from "dashboard/_pills.html" import status_pill, severity_marker, volume_cell %}
+{#
+  The Domains table body. Rendered on the page and again by the fragment
+  endpoint, so the island swaps exactly what the server would have sent.
+
+  PINNED: a fully-missing row must be distinguishable from a fully-green row
+  without reading cells. Three things do that together — the severity marker,
+  the row tint and the bold name — and the template applies all three when four
+  or more signals are missing.
+#}
+{% set t = table %}
+{% macro sort_link(key, label, align='') -%}
+  {% set active = t.sort == key %}
+  {% set next = 'desc' if (active and t.dir == 'asc') else 'asc' %}
+  <a class="th{% if active %} th--active{% endif %}{% if align %} th--{{ align }}{% endif %}"
+     href="?days={{ win.days }}&q={{ t.q|urlencode }}&gaps={{ 1 if t.gaps else 0 }}&sort={{ key }}&dir={{ next }}&page=0"
+     data-sort="{{ key }}" aria-sort="{{ ('ascending' if t.dir == 'asc' else 'descending') if active else 'none' }}">
+    {{ label }}{% if active %} <span aria-hidden="true">{{ '↑' if t.dir == 'asc' else '↓' }}</span>{% endif %}
+  </a>
+{%- endmacro %}
+
+<div class="dtable" id="domains-table" data-page="{{ t.page }}" data-pages="{{ t.pages }}">
+  <div class="dtable__scroll">
+    <div class="dtable__inner" role="table" aria-label="Domains">
+      <div class="dtable__head" role="row">
+        <div class="th-sev" aria-hidden="true"></div>
+        {{ sort_link('name', 'Domain') }}
+        {{ sort_link('dmarc', 'DMARC', 'center') }}
+        {{ sort_link('spf', 'SPF', 'center') }}
+        {{ sort_link('dkim', 'DKIM', 'center') }}
+        {{ sort_link('mtasts', 'MTA-STS', 'center') }}
+        {{ sort_link('tlsrpt', 'TLS-RPT', 'center') }}
+        {{ sort_link('volume', 'Volume', 'right') }}
+        <div class="th-chev" aria-hidden="true"></div>
+      </div>
+
+      {% for d in t.rows %}
+        {% set ps = pills(d) %}
+        {% set tone = severity_tone(d) %}
+        {% set critical = d.gaps >= 4 %}
+        <a class="drow{% if critical %} drow--critical{% endif %}" role="row"
+           href="/domains/{{ d.name }}?days={{ win.days }}" data-domain="{{ d.name }}">
+          <div class="drow__sev">{{ severity_marker(tone) }}</div>
+          <div class="drow__name" role="cell">
+            <span class="drow__domain{% if critical %} drow__domain--bold{% endif %}">{{ d.name }}</span>
+            <span class="drow__role">{{ role_label(d.role) }}</span>
+            {% if d.rua_matches is sameas false %}
+              <span class="drow__flag" title="rua= does not include this mailbox">rua≠</span>
+            {% endif %}
+          </div>
+          {% for p in ps %}
+            <div class="drow__cell" role="cell">{{ status_pill(p) }}</div>
+          {% endfor %}
+          <div class="drow__vol" role="cell">{{ volume_cell(d, t.has_reports) }}</div>
+          <div class="drow__chev" aria-hidden="true">›</div>
+        </a>
+
+        {# Phone layout: one card per domain, pills name themselves. #}
+        <a class="dcard" href="/domains/{{ d.name }}?days={{ win.days }}" data-tone="{{ tone }}">
+          <div class="dcard__top">
+            <span class="dcard__name">{{ d.name }}</span>
+            <span class="dcard__vol">{{ volume_cell(d, t.has_reports) }}</span>
+          </div>
+          <div class="dcard__role">{{ role_label(d.role) }}</div>
+          <div class="dcard__pills">
+            {% for p in ps %}{{ status_pill(p, named=True) }}{% endfor %}
+          </div>
+        </a>
+      {% else %}
+        <div class="dtable__empty" role="row">
+          <div class="dtable__empty-title">No domains match</div>
+          <div class="dtable__empty-hint">{{ t.empty_hint }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="dtable__foot">
+    <span class="dtable__range">
+      {% if t.matched %}{{ t.range_start }}–{{ t.range_end }} of {{ t.matched }}{% else %}0 of {{ t.matched }}{% endif %}
+    </span>
+    <div class="spacer"></div>
+    {% set base = '?days=' ~ win.days ~ '&q=' ~ (t.q|urlencode) ~ '&gaps=' ~ (1 if t.gaps else 0) ~ '&sort=' ~ t.sort ~ '&dir=' ~ t.dir %}
+    <a class="btn btn--outlined{% if t.page == 0 %} btn--disabled{% endif %}"
+       href="{{ base }}&page={{ t.page - 1 if t.page > 0 else 0 }}" data-page="{{ t.page - 1 }}"
+       {% if t.page == 0 %}aria-disabled="true" tabindex="-1"{% endif %}>Previous</a>
+    <a class="btn btn--outlined{% if t.page >= t.pages - 1 %} btn--disabled{% endif %}"
+       href="{{ base }}&page={{ t.page + 1 if t.page < t.pages - 1 else t.page }}" data-page="{{ t.page + 1 }}"
+       {% if t.page >= t.pages - 1 %}aria-disabled="true" tabindex="-1"{% endif %}>Next</a>
+  </div>
+</div>

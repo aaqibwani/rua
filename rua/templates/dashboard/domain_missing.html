@@ -1,0 +1,15 @@
+{% extends "dashboard/shell.html" %}
+{% block title %}Not found · Rua{% endblock %}
+
+{% block panel %}
+<nav class="crumbs"><a href="/domains?days={{ win.days }}">Domains</a> / <span class="mono">{{ missing_name }}</span></nav>
+<section class="panel">
+  <div class="empty">
+    <div class="empty__title">No such domain</div>
+    <div class="empty__line">Nothing in this tenant is called <span class="mono">{{ missing_name }}</span>.</div>
+    <div class="empty__line">Domains come from the tenant's verified list, synced daily. If it was added
+      today, run <span class="mono">rua sync-domains</span>.</div>
+    <div class="empty__endpoint">GET /api/domains/{{ missing_name }} → 404</div>
+  </div>
+</section>
+{% endblock %}

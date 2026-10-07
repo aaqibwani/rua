@@ -1,0 +1,120 @@
+{% extends "dashboard/shell.html" %}
+{% from "dashboard/_pills.html" import status_pill %}
+{% from "dashboard/_sources_table.html" import sources_table %}
+{% block title %}{{ d.name }} · Rua{% endblock %}
+
+{% block panel %}
+{% set ps = pills(d) %}
+{% set rd = d.readiness_detail %}
+{% set verdict = rd.verdict if rd else none %}
+
+<nav class="crumbs"><a href="/domains?days={{ win.days }}">Domains</a> / {{ d.name }}</nav>
+
+<div class="title-row">
+  <h1 class="title-row__name">{{ d.name }}</h1>
+  <span class="role-pill">{{ role_label(d.role) }}</span>
+  <span class="title-row__summary">
+    {{ d.gaps }} gap{{ '' if d.gaps == 1 else 's' }}, {{ d.warns }} partial,
+    {% if d.volume is none %}volume pending{% else %}{{ compact(d.volume) }} messages in {{ win.days }}d{% endif %}
+  </span>
+  <div class="spacer"></div>
+  <a class="btn btn--outlined" href="/domains?days={{ win.days }}">Back to domains</a>
+</div>
+
+<div class="tiles">
+  {% for p in ps %}
+    <div class="tile" data-tone="{{ p.tone }}">
+      <div class="tile__label">{{ p.name }}</div>
+      <div class="tile__value">{{ p.label }}</div>
+      <div class="tile__note">{{ tile_note(p.signal, p.value) }}</div>
+    </div>
+  {% endfor %}
+</div>
+
+<div class="two-col two-col--400">
+  <section class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">Readiness for p=reject</h2>
+      {% if verdict %}<span class="panel__caption">{{ verdict_label(verdict) }}</span>{% endif %}
+    </div>
+    <div class="panel__body">
+      {% if d.readiness is not none %}
+        <div class="big" data-tone="{{ rate_tone(d.readiness) }}">{{ percent(d.readiness) }}</div>
+        <div class="muted">of known-legitimate volume would still pass at <strong>p=reject</strong></div>
+      {% elif detail.has_reports and d.volume %}
+        <div class="big" data-tone="na">—</div>
+        <div class="muted">No known-legitimate volume in this window — every message failed from an
+          unclassified sender, so there is nothing to score.</div>
+      {% elif detail.has_reports %}
+        <div class="big" data-tone="na">—</div>
+        <div class="muted">No messages reported for this domain in the last {{ win.days }} days.</div>
+      {% else %}
+        <div class="big" data-tone="na">—</div>
+        <div class="muted">Waiting for the first aggregate report.</div>
+      {% endif %}
+
+      <div class="stack-bar{% if bar.empty %} stack-bar--empty{% endif %}" role="img"
+           aria-label="{% if rd %}Aligned pass {{ thousands(rd.aligned_pass) }}, unaligned known sender {{ thousands(rd.fail_known) }}, unclassified sender {{ thousands(rd.fail_unclassified) }}{% else %}No report data{% endif %}">
+        <span class="stack-bar__seg" data-tone="ok" style="width: {{ '%.2f'|format(bar.ok) }}%"></span>
+        <span class="stack-bar__seg" data-tone="warn" style="width: {{ '%.2f'|format(bar.warn) }}%"></span>
+        <span class="stack-bar__seg" data-tone="gap" style="width: {{ '%.2f'|format(bar.gap) }}%"></span>
+      </div>
+      <div class="legend">
+        <div class="legend__item"><span class="legend__swatch" data-tone="ok"></span>Aligned pass
+          <span class="legend__n">{{ thousands(rd.aligned_pass) if rd else '—' }}</span></div>
+        <div class="legend__item"><span class="legend__swatch" data-tone="warn"></span>Unaligned known sender
+          <span class="legend__n">{{ thousands(rd.fail_known) if rd else '—' }}</span></div>
+        <div class="legend__item"><span class="legend__swatch" data-tone="gap"></span>Unclassified sender
+          <span class="legend__n">{{ thousands(rd.fail_unclassified) if rd else '—' }}</span></div>
+      </div>
+      <div class="rule"></div>
+      <div class="advice">{{ readiness_advice(verdict, d.dmarc, detail.has_reports) }}</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">TLS results</h2>
+      <span class="panel__caption">
+        {% if detail.tls.sessions is not none %}{{ compact(detail.tls.sessions) }} sessions · {{ percent(detail.tls.success_rate) }} ok{% endif %}
+      </span>
+    </div>
+    <div class="panel__body">
+      {% if detail.tls.failures %}
+        <div class="kv">
+          {% for f in detail.tls.failures[:4] %}
+            <div class="kv__row">
+              <span class="mono">{{ f.result_type }}</span>
+              <span class="kv__owner" data-owner="{{ f.owner }}">{{ 'yours to fix' if f.owner == 'receiver' else ('sender side' if f.owner == 'sender' else 'unclear') }}</span>
+              <span class="kv__n">{{ thousands(f.count) }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% elif detail.tls.has_tls_reports %}
+        <div class="muted">No TLS failures reported for this domain in the window.</div>
+      {% else %}
+        <div class="muted">No TLS reports have arrived yet.</div>
+      {% endif %}
+      <div class="rule"></div>
+      <div class="footnote">
+        {% if d.tlsrpt == 'present' %}
+          This domain publishes TLS-RPT, so sending MTAs report their failures here.
+        {% elif d.tlsrpt == 'na' %}
+          Microsoft's zone; TLS reporting for it is not yours to configure.
+        {% else %}
+          This domain does not publish TLS-RPT. Nothing above can be attributed to it until it does —
+          add an <span class="mono">_smtp._tls</span> record to start receiving reports.
+        {% endif %}
+      </div>
+    </div>
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel__head">
+    <h2 class="panel__title">Sources sending as {{ d.name }}</h2>
+    <span class="panel__caption">{{ detail.sources|length }} source{{ '' if detail.sources|length == 1 else 's' }} in {{ win.days }}d</span>
+  </div>
+  {{ sources_table(detail.sources, detail.has_reports, 'GET /api/domains/' ~ d.name ~ '?days=' ~ win.days) }}
+</section>
+{% endblock %}

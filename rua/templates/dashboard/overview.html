@@ -1,0 +1,121 @@
+{% extends "dashboard/shell.html" %}
+{% from "dashboard/_pills.html" import severity_marker, volume_cell %}
+{% block title %}Overview · Rua{% endblock %}
+
+{% block panel %}
+{% set s = summary %}
+<div class="cards">
+  <div class="metric">
+    <div class="metric__label">Domains monitored</div>
+    <div class="metric__row"><span class="metric__value">{{ s.domains_monitored }}</span></div>
+    <div class="metric__sub">{{ s.domains_with_gaps }} with at least one gap{% if s.rua_mismatches %} · {{ s.rua_mismatches }} rua= elsewhere{% endif %}</div>
+  </div>
+  <div class="metric">
+    <div class="metric__label">DMARC pass rate</div>
+    <div class="metric__row"><span class="metric__value" data-tone="{{ 'ok' if s.dmarc_pass_rate is not none else 'none' }}">{{ percent(s.dmarc_pass_rate) }}</span></div>
+    <div class="metric__sub">{% if s.has_reports %}aligned, last {{ win.days }} days{% else %}waiting for first reports{% endif %}</div>
+  </div>
+  <div class="metric">
+    <div class="metric__label">TLS success rate</div>
+    <div class="metric__row"><span class="metric__value" data-tone="{{ 'ok' if s.tls_success_rate is not none else 'none' }}">{{ percent(s.tls_success_rate) }}</span></div>
+    <div class="metric__sub">{% if s.has_tls_reports %}of {{ compact(s.tls_sessions) }} sessions{% else %}waiting for TLS reports{% endif %}</div>
+  </div>
+  <div class="metric">
+    <div class="metric__label">Message volume</div>
+    <div class="metric__row"><span class="metric__value">{{ compact(s.message_volume) }}</span><span class="metric__unit">{% if s.message_volume is not none %}messages{% endif %}</span></div>
+    <div class="metric__sub">{% if s.has_reports %}reported in {{ win.days }} days{% else %}reports pending{% endif %}</div>
+  </div>
+</div>
+
+<div class="two-col two-col--360">
+  <section class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">DMARC pass rate</h2>
+      <span class="panel__caption">aligned share of reported volume per day</span>
+      <div class="spacer"></div>
+      <span class="legend__item"><span class="legend__line"></span>Aligned pass</span>
+    </div>
+    <div class="chart">
+      <div class="chart__wrap">
+        {% for label, y in chart.gridlines %}
+          <div class="chart__ylabel" style="top: {{ y }}px">{{ label }}%</div>
+        {% endfor %}
+        <svg class="chart__svg" viewBox="0 0 900 240" preserveAspectRatio="none" aria-hidden="true">
+          {% for label, y in chart.gridlines %}
+            <line x1="0" x2="900" y1="{{ y }}" y2="{{ y }}" class="chart__grid"></line>
+          {% endfor %}
+          {% if chart.has_line %}
+            <path d="{{ chart.area }}" class="chart__area"></path>
+            <path d="{{ chart.line }}" class="chart__line"></path>
+          {% endif %}
+        </svg>
+        {% if not chart.has_line %}
+          <div class="chart__empty">{% if s.has_reports %}No volume in this window{% else %}Waiting for first reports{% endif %}</div>
+        {% endif %}
+      </div>
+      <div class="chart__xticks">
+        {% for t in chart.ticks %}<span>{{ t }}</span>{% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel callout">
+    {% set c = s.readiness_callout %}
+    {% if c %}
+      <div class="callout__head">
+        <span class="callout__domain">{{ c.domain }}</span>
+        <span class="pill" data-tone="warn">{{ 'p=' ~ c.dmarc }}</span>
+      </div>
+      <div class="big" data-tone="{{ rate_tone(c.readiness) }}">{{ percent(c.readiness) }}</div>
+      <div class="muted">of legitimate volume would still pass at <strong>{{ promotion_target(c.dmarc) }}</strong></div>
+      <div class="progress" role="progressbar" aria-valuenow="{{ c.readiness or 0 }}" aria-valuemin="0" aria-valuemax="100">
+        <span class="progress__bar" style="width: {{ c.readiness or 0 }}%"></span>
+      </div>
+      <div class="figures">
+        <div class="figure"><div class="figure__label">Failing volume</div><div class="figure__value">{{ thousands(c.failing_volume) }}</div></div>
+        <div class="figure"><div class="figure__label">Unclassified senders</div><div class="figure__value" data-tone="{{ 'gap' if c.unclassified_volume else 'none' }}">{{ thousands(c.unclassified_volume) }}</div></div>
+      </div>
+      <div class="rule"></div>
+      <div class="footnote">Promotion stays a manual change. Review the failing senders before tightening the record.</div>
+      <a class="callout__link" href="/domains/{{ c.domain }}?days={{ win.days }}">Open {{ c.domain }} →</a>
+    {% else %}
+      <div class="callout__head"><span class="callout__domain">Readiness</span></div>
+      <div class="big" data-tone="na">—</div>
+      <div class="muted">
+        {% if not s.has_reports %}
+          Once reports arrive, this names the domain closest to a safe policy upgrade.
+        {% else %}
+          No domain below p=reject sent mail in this window, so there is nothing to promote.
+        {% endif %}
+      </div>
+      <div class="rule"></div>
+      <div class="footnote">Promotion stays a manual change. Rua never edits DNS.</div>
+    {% endif %}
+  </section>
+</div>
+
+{% if attention %}
+<section class="panel">
+  <div class="panel__head">
+    <h2 class="panel__title">Needs attention</h2>
+    <span class="panel__caption">most missing signals first</span>
+    <div class="spacer"></div>
+    <a class="panel__link" href="/domains?days={{ win.days }}&gaps=1">All gaps →</a>
+  </div>
+  <div class="attn">
+    {% for d in attention %}
+      <a class="attn__row" href="/domains/{{ d.name }}?days={{ win.days }}">
+        {{ severity_marker(severity_tone(d)) }}
+        <span class="attn__name">{{ d.name }}</span>
+        <span class="attn__role">{{ role_label(d.role) }}</span>
+        <span class="attn__strip" aria-label="{% for p in pills(d) %}{{ p.name }} {{ p.label }}{% if not loop.last %}, {% endif %}{% endfor %}">
+          {% for p in pills(d) %}<span class="attn__seg" data-tone="{{ p.tone }}" title="{{ p.name }} {{ p.label }}"></span>{% endfor %}
+        </span>
+        <span class="attn__vol">{{ volume_cell(d, s.has_reports) }}</span>
+        <span class="attn__chev" aria-hidden="true">›</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

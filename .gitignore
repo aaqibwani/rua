@@ -30,3 +30,4 @@ Thumbs.db
 
 # Local certificate bundles (corporate TLS interception) — machine-specific
 *-ca-bundle.pem
+.claude/

@@ -580,7 +580,7 @@ def test_demo_mode_opens_the_dashboard_without_finishing_setup(client, clean_db)
     response = client.get("/")
 
     assert response.status_code == 200, "the setup gate must let demo mode through"
-    assert "demo domains loaded" in response.text
+    assert "Sample data" in response.text
     assert "Back to setup" in response.text
 
 

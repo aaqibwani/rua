@@ -1,0 +1,77 @@
+{% extends "dashboard/shell.html" %}
+{% block title %}TLS · Rua{% endblock %}
+
+{% block panel %}
+<div class="cards">
+  <div class="metric">
+    <div class="metric__label">TLS success rate</div>
+    <div class="metric__row"><span class="metric__value" data-tone="{{ 'ok' if tls.success_rate is not none else 'none' }}">{{ percent(tls.success_rate) }}</span></div>
+    <div class="metric__sub">{% if tls.sessions is none %}waiting for TLS reports{% else %}of {{ compact(tls.sessions) }} sessions{% endif %}</div>
+  </div>
+  <div class="metric">
+    <div class="metric__label">Sessions reported</div>
+    <div class="metric__row"><span class="metric__value">{{ compact(tls.sessions) }}</span></div>
+    <div class="metric__sub">last {{ win.days }} days</div>
+  </div>
+  <div class="metric">
+    <div class="metric__label">Failed sessions</div>
+    <div class="metric__row"><span class="metric__value">{{ compact(tls.failures_total) }}</span></div>
+    <div class="metric__sub">{{ tls.failures|length }} result type{{ '' if tls.failures|length == 1 else 's' }}</div>
+  </div>
+  <div class="metric">
+    <div class="metric__label">Reporting organisations</div>
+    <div class="metric__row"><span class="metric__value">{{ tls.reporters|length if tls.has_tls_reports else '—' }}</span></div>
+    <div class="metric__sub">sending TLS-RPT to this mailbox</div>
+  </div>
+</div>
+
+<div class="two-col two-col--400">
+  <section class="panel">
+    <div class="panel__head">
+      <h2 class="panel__title">Failures by result type</h2>
+      <span class="panel__caption">RFC 8460 · ranked by volume</span>
+    </div>
+    {% if tls.failures %}
+      <div class="ftable" role="table">
+        <div class="ftable__head" role="row">
+          <div class="th">Result type</div><div class="th">Whose fix</div><div class="th th--right">Sessions</div><div class="th th--right">Share</div>
+        </div>
+        {% for f in tls.failures %}
+          <div class="frow" role="row">
+            <div class="mono">{{ f.result_type }}</div>
+            <div><span class="owner-pill" data-owner="{{ f.owner }}">{{ 'yours' if f.owner == 'receiver' else ('sender' if f.owner == 'sender' else 'unclear') }}</span></div>
+            <div class="num">{{ thousands(f.count) }}</div>
+            <div class="num">{{ percent(100.0 * f.count / tls.failures_total if tls.failures_total else none) }}</div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="panel__foot">"Yours" means the policy domain's side: certificates, MTA-STS policy, DANE records.
+        "Sender" means the connecting MTA could not validate what it was shown.</div>
+    {% else %}
+      <div class="empty">
+        <div class="empty__title">{% if tls.has_tls_reports %}No failures in this window{% else %}No TLS reports yet{% endif %}</div>
+        <div class="empty__line">{% if tls.has_tls_reports %}Every reported session negotiated TLS.{% else %}TLS-RPT reports arrive daily from senders that honour your _smtp._tls record.{% endif %}</div>
+        <div class="empty__line">{% if not tls.has_tls_reports %}Domains without that record never appear here.{% endif %}</div>
+        <div class="empty__endpoint">GET /api/tls/summary?days={{ win.days }}</div>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel__head"><h2 class="panel__title">Reporting organisations</h2></div>
+    {% if tls.reporters %}
+      <div class="kv kv--pad">
+        {% for r in tls.reporters %}
+          <div class="kv__row">
+            <span>{{ r.org_name }}</span>
+            <span class="kv__owner">{{ percent(r.success_rate) }} ok</span>
+            <span class="kv__n">{{ compact(r.successes + r.failures) }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="panel__body muted">Nobody has reported yet.</div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

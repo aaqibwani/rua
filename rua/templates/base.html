@@ -8,6 +8,7 @@
      call the operator did not configure" is a documented promise, and a CDN
      reference from the browser is exactly that kind of call. #}
   <link rel="stylesheet" href="{{ url_for('static', path='/rua.css') }}">
+  {% block styles %}{% endblock %}
 </head>
 <body>
   <header class="hdr">

@@ -1,0 +1,25 @@
+{#
+  Status pills. PINNED: never colour alone — every pill carries its word, and on
+  the phone layout, where the column header is gone, it carries its signal name
+  too. The `data-tone` attribute drives the colour; the text drives the meaning.
+#}
+{% macro status_pill(p, named=False) -%}
+<span class="pill" data-tone="{{ p.tone }}" data-signal="{{ p.signal }}" data-value="{{ p.value }}">
+  {%- if named %}<span class="pill__name">{{ p.name }}</span> {% endif -%}
+  {{ p.label }}
+</span>
+{%- endmacro %}
+
+{% macro severity_marker(tone) -%}
+<span class="sev" data-tone="{{ tone }}" aria-hidden="true"></span>
+{%- endmacro %}
+
+{% macro volume_cell(d, has_reports) -%}
+{% if d.volume is none -%}
+  <span class="vol vol--pending" title="Awaiting reports">pending</span>
+{%- elif d.volume == 0 -%}
+  <span class="vol vol--none">none</span>
+{%- else -%}
+  <span class="vol" title="{{ thousands(d.volume) }} messages">{{ compact(d.volume) }}</span>
+{%- endif %}
+{%- endmacro %}

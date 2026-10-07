@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block subtitle %}{{ tenant_name }}{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', path='/dashboard.css') }}">{% endblock %}
+
+{% block headerright %}
+  {% if demo_mode %}
+    <a class="hdr__link" href="{{ url_for('setup_root') }}">Back to setup</a>
+  {% endif %}
+  <div class="ingest-pill" data-tone="{{ pill.tone }}">
+    <span class="ingest-pill__dot" aria-hidden="true"></span>
+    <span>{{ pill.text }}</span>
+  </div>
+{% endblock %}
+
+{% block content %}
+<nav class="toolbar" aria-label="Dashboard">
+  <div class="tabs" role="tablist">
+    {% for t in tabs %}
+      <a class="tab{% if t.key == tab %} tab--selected{% endif %}" href="{{ t.href }}"
+         role="tab" aria-selected="{{ 'true' if t.key == tab else 'false' }}">{{ t.label }}</a>
+    {% endfor %}
+  </div>
+  <div class="spacer"></div>
+  <div class="range" data-island="range">
+    <span class="range__label" id="range-label">Window</span>
+    <div class="range__control" role="group" aria-labelledby="range-label">
+      {% for n in window_options %}
+        <a class="range__opt{% if n == win.days %} range__opt--selected{% endif %}"
+           href="{{ path }}?days={{ n }}" aria-current="{{ 'true' if n == win.days else 'false' }}">{{ n }}d</a>
+      {% endfor %}
+    </div>
+  </div>
+</nav>
+
+<div class="content">
+  <div class="content__inner">
+    {% block panel %}{% endblock %}
+  </div>
+</div>
+<script src="{{ url_for('static', path='/dashboard.js') }}" defer></script>
+{% endblock %}

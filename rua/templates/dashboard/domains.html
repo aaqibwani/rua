@@ -1,0 +1,28 @@
+{% extends "dashboard/shell.html" %}
+{% block title %}Domains · Rua{% endblock %}
+
+{% block panel %}
+<section class="panel" data-island="domains" data-fragment="/fragments/domains-table" data-days="{{ win.days }}">
+  <form class="panel__head" method="get" action="/domains" id="domains-controls">
+    <input type="hidden" name="days" value="{{ win.days }}">
+    <input type="hidden" name="sort" value="{{ table.sort }}">
+    <input type="hidden" name="dir" value="{{ table.dir }}">
+    <input type="hidden" name="page" value="0">
+    <h1 class="panel__title">Domains</h1>
+    <span class="panel__caption" id="domains-caption">{{ table.matched }} of {{ table.total }} domains</span>
+    <div class="spacer"></div>
+    <label class="switch">
+      <input type="checkbox" name="gaps" value="1" {% if table.gaps %}checked{% endif %}>
+      <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+      <span class="switch__label">Gaps only</span>
+    </label>
+    <input class="search" type="search" name="q" value="{{ table.q }}" placeholder="Search domains"
+           aria-label="Search domains" autocomplete="off">
+    <noscript><button class="btn btn--outlined" type="submit">Apply</button></noscript>
+  </form>
+
+  <div id="domains-table-slot" aria-live="polite">
+    {% include "dashboard/_domains_table.html" %}
+  </div>
+</section>
+{% endblock %}
