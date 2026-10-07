@@ -55,3 +55,8 @@ def test_version_flag(capsys) -> None:
         main(["--version"])
     assert exc.value.code == 0
     assert __version__ in capsys.readouterr().out
+
+
+def test_sync_domains_subcommand_exists() -> None:
+    # The wizard's domain count and "I just fixed my DNS" both need it on demand.
+    assert _build_parser().parse_args(["sync-domains"]).command == "sync-domains"

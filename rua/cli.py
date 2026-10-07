@@ -38,6 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("scheduler", help="Run the ingestion and domain-sync scheduler.")
+    sub.add_parser("sync-domains", help="Pull verified domains and re-check their DNS now.")
 
     seed = sub.add_parser("seed", help="Load sample data.")
     seed.add_argument(
@@ -100,6 +101,47 @@ def _ingest_job() -> None:
         log.exception("ingest_job_crashed", error_type=type(exc).__name__)
 
 
+def _domain_sync_job() -> None:
+    """Graph /domains plus a live DNS check of every domain. Same crash rule."""
+    from rua.db import session_scope
+    from rua.domain_sync import run_domain_sync
+    from rua.logging import get_logger
+
+    log = get_logger("rua.scheduler")
+    try:
+        with session_scope() as session:
+            result = run_domain_sync(session)
+        if not result.ok:
+            log.warning("domain_sync_failed", error=result.error_text)
+    except Exception as exc:
+        log.exception("domain_sync_job_crashed", error_type=type(exc).__name__)
+
+
+def _sync_domains_now() -> int:
+    """``rua sync-domains``: the daily job, on demand.
+
+    The wizard's final step shows a verified-domain count, and an operator who
+    has just fixed a DNS record should not have to wait until DOMAIN_SYNC_HOUR.
+    """
+    from rua.config import get_settings
+    from rua.db import session_scope
+    from rua.domain_sync import run_domain_sync
+    from rua.logging import configure_logging
+
+    configure_logging(get_settings().log_level)
+    with session_scope() as session:
+        result = run_domain_sync(session)
+
+    if not result.ok:
+        print(f"Domain sync failed: {result.error_text}", file=sys.stderr)
+        return 1
+    print(
+        f"Checked {result.domains_seen} domains: {result.created} new, "
+        f"{result.updated} updated, {result.unresolved} with an unresolved lookup."
+    )
+    return 0
+
+
 def _scheduler() -> int:
     import datetime as dt
 
@@ -128,8 +170,21 @@ def _scheduler() -> int:
         next_run_time=dt.datetime.now(dt.UTC) + dt.timedelta(seconds=15),
     )
 
+    scheduler.add_job(
+        _domain_sync_job,
+        trigger="cron",
+        hour=settings.domain_sync_hour,
+        minute=0,
+        id="domain_sync",
+        name="Sync verified domains and re-check DNS",
+        max_instances=1,
+        coalesce=True,
+        # A daily job that misses its slot by a container restart should still
+        # run that day rather than wait for tomorrow.
+        misfire_grace_time=6 * 3600,
+    )
+
     # Still to come:
-    #   M5 — Graph /domains sync and DNS re-check daily at DOMAIN_SYNC_HOUR
     #   M9 — nightly retention rollup and delete
 
     log.info(
@@ -180,6 +235,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _serve(args.host, args.port, args.reload)
     if args.command == "scheduler":
         return _scheduler()
+    if args.command == "sync-domains":
+        return _sync_domains_now()
     if args.command == "seed":
         return _seed(args.demo, args.tenant_prefix, args.mailbox)
 

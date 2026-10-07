@@ -133,11 +133,27 @@ encrypted with `SECRET_KEY`; they never live in `.env`.
 | `SECRET_KEY` | — | Required. Encrypts stored credentials. Rotating it invalidates them |
 | `BASE_URL` | `http://localhost:8080` | External URL, used for generated links |
 | `INGEST_INTERVAL_MINUTES` | `60` | Mailbox poll interval |
-| `DOMAIN_SYNC_HOUR` | `3` | UTC hour for the daily domain and DNS re-check |
+| `DOMAIN_SYNC_HOUR` | `3` | UTC hour for the daily domain and DNS re-check. `rua sync-domains` runs it on demand |
 | `RETENTION_RAW_DAYS` | `90` | Raw report rows before rollup |
 | `RETENTION_ROLLUP_DAYS` | `730` | Daily aggregates before deletion |
 | `ALERT_WEBHOOK_URL` | unset | Teams or Slack incoming webhook. Unset means no alerting |
 | `LOG_LEVEL` | `INFO` | Structured JSON to stdout |
+
+## How posture is read
+
+Everything in the Domains table except volume comes from public DNS, checked daily and on
+demand with `rua sync-domains`. The derivation is deliberately conservative, and three of its
+choices are worth knowing about:
+
+- **DKIM checks the two Microsoft 365 selectors**, `selector1` and `selector2`. DNS does not
+  allow a zone to be enumerated, so other providers' selectors cannot be discovered; a domain
+  signing only through a third party shows as `not configured` for DKIM. "1 of 2 selectors" is
+  this pair.
+- **A lookup that fails is not a gap.** A timeout or SERVFAIL keeps the previous value and leaves
+  `dns_checked_at` alone, so a bad day at the resolver cannot raise an alert or paint a row red.
+  The next clean run corrects it.
+- **Two DMARC records, or two SPF records, read as `not configured`.** That is what receivers do
+  (RFC 7489 §6.6.3, RFC 7208 §3.2), so showing anything else would overstate the protection.
 
 ## Security
 
