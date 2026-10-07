@@ -41,6 +41,7 @@ from rua.queries import (
     window,
 )
 from rua.retention import retention_facts
+from rua.routes.setup import csrf_token
 from rua.settings_store import is_demo_mode, is_setup_complete
 
 log = get_logger(__name__)
@@ -166,6 +167,8 @@ def _shell(request: Request, session: Session, win: Window, tab: str) -> dict[st
         "summary": summary,
         "path": request.url.path,
         "day_zero": not summary.has_reports and not demo,
+        "signed_in": request.session.get("admin_id") == 1,
+        "csrf_token": csrf_token(request),
     }
 
 
@@ -384,6 +387,7 @@ async def render_error(request: Request, exc: Exception) -> Response:
             "tenant_name": "",
             "demo_mode": False,
             "pill": {"text": "Error", "tone": "warn"},
+            "signed_in": False,
             "stale": None,
             "day_zero": False,
             "path": request.url.path,

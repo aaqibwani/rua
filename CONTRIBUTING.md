@@ -25,9 +25,11 @@ python3.12 -m venv .venv
 pip install -r requirements-dev.txt
 pip install --no-deps -e .
 
-alembic upgrade head
-rua serve --reload
+rua serve --reload          # applies migrations first; `rua migrate` does it alone
 ```
+
+On Windows use `127.0.0.1` rather than `localhost` in `DATABASE_URL`; `localhost` resolves
+to IPv6 first and the connection stalls.
 
 pip and `requirements.txt` only — no Poetry, no uv, no lockfile tooling. Runtime pins live
 in `requirements.txt`; `pyproject.toml` declares no runtime dependencies so there is one

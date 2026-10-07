@@ -21,10 +21,24 @@ from rua.models import (
 )
 from rua.seed import RUA_MISMATCHES, seed_demo
 
+PASSWORD = "correct horse battery staple"
 
-def _complete_setup(session) -> None:
+
+def _complete_setup(client, session) -> None:
+    """Finish setup and sign the test client in, as a real operator would be."""
+    import re
+
+    from rua.wizard import create_admin
+
+    create_admin(session, "Ops", "ops@example.com", PASSWORD)
     store.set_bool(session, store.SETUP_COMPLETE, True)
     session.commit()
+    token = re.search(r'name="csrf_token" value="([^"]+)"', client.get("/login").text).group(1)
+    response = client.post(
+        "/login",
+        data={"email": "ops@example.com", "password": PASSWORD, "next": "/", "csrf_token": token},
+    )
+    assert response.status_code == 303, "test login must succeed"
 
 
 def _first_report(session, when: dt.datetime | None = None) -> None:
@@ -70,7 +84,7 @@ def _run(session, outcome: IngestOutcome, ago: dt.timedelta, parsed: int = 0) ->
 
 def test_day_zero_page_shows_dns_posture_and_mismatches(client, clean_db) -> None:
     seed_demo(clean_db)
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     _run(clean_db, IngestOutcome.SUCCESS, dt.timedelta(minutes=20))
 
     html = client.get("/").text
@@ -88,7 +102,7 @@ def test_day_zero_page_shows_dns_posture_and_mismatches(client, clean_db) -> Non
 def test_day_zero_page_is_not_stale_and_has_no_stale_banner(client, clean_db) -> None:
     """The waiting page has its own facts; the stale banner belongs to the data pages."""
     seed_demo(clean_db)
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     _run(clean_db, IngestOutcome.FAILURE, dt.timedelta(hours=9))
     html = client.get("/").text
     assert "Data may be stale" not in html
@@ -97,7 +111,7 @@ def test_day_zero_page_is_not_stale_and_has_no_stale_banner(client, clean_db) ->
 
 def test_day_zero_disappears_on_the_first_parsed_report(client, clean_db) -> None:
     seed_demo(clean_db)
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     _run(clean_db, IngestOutcome.SUCCESS, dt.timedelta(minutes=5), parsed=1)
     assert "No reports yet" in client.get("/").text
 
@@ -113,7 +127,7 @@ def test_day_zero_disappears_on_the_first_parsed_report(client, clean_db) -> Non
 def test_the_dashboard_is_reachable_on_day_zero(client, clean_db) -> None:
     """DNS columns ready, volume columns empty, on the same row."""
     seed_demo(clean_db)
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     html = client.get("/overview").text
     assert "DMARC pass rate" in html and "waiting for first reports" in html
     table = client.get("/domains").text
@@ -134,7 +148,7 @@ def test_demo_mode_never_shows_the_waiting_page(client, clean_db) -> None:
 
 def test_stale_banner_names_the_age_of_the_last_success(client, clean_db) -> None:
     seed_demo(clean_db)
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     _first_report(clean_db)
     _run(clean_db, IngestOutcome.SUCCESS, dt.timedelta(hours=7), parsed=1)
     _run(clean_db, IngestOutcome.FAILURE, dt.timedelta(minutes=30))
@@ -149,7 +163,7 @@ def test_stale_banner_names_the_age_of_the_last_success(client, clean_db) -> Non
 
 def test_fresh_data_has_no_banner(client, clean_db) -> None:
     seed_demo(clean_db)
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     _first_report(clean_db)
     _run(clean_db, IngestOutcome.SUCCESS, dt.timedelta(minutes=10), parsed=1)
     html = client.get("/domains").text
@@ -159,7 +173,7 @@ def test_fresh_data_has_no_banner(client, clean_db) -> None:
 
 def test_never_succeeded_is_stale(client, clean_db) -> None:
     seed_demo(clean_db)
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     _first_report(clean_db)
     _run(clean_db, IngestOutcome.FAILURE, dt.timedelta(minutes=5))
     html = client.get("/sources").text
@@ -184,7 +198,7 @@ def lenient_client(clean_db):
 
 def test_error_state_renders_the_failing_request(lenient_client, clean_db, monkeypatch) -> None:
     client = lenient_client
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
 
     def boom(*args, **kwargs):
         raise RuntimeError("database exploded with password=hunter2")
@@ -201,7 +215,7 @@ def test_error_state_renders_the_failing_request(lenient_client, clean_db, monke
 
 def test_api_errors_are_json(lenient_client, clean_db, monkeypatch) -> None:
     client = lenient_client
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     monkeypatch.setattr(
         "rua.api.queries.has_report_data", lambda s: (_ for _ in ()).throw(RuntimeError("x"))
     )
@@ -214,7 +228,7 @@ def test_api_errors_are_json(lenient_client, clean_db, monkeypatch) -> None:
 
 
 def test_ingestion_log_lists_runs_newest_first(client, clean_db) -> None:
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     _run(clean_db, IngestOutcome.SUCCESS, dt.timedelta(hours=2), parsed=4)
     _run(clean_db, IngestOutcome.FAILURE, dt.timedelta(minutes=1))
     html = client.get("/settings/ingestion").text
@@ -223,12 +237,12 @@ def test_ingestion_log_lists_runs_newest_first(client, clean_db) -> None:
 
 
 def test_ingestion_log_empty_state(client, clean_db) -> None:
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     assert "No runs yet" in client.get("/settings/ingestion").text
 
 
 def test_domains_page_ships_a_skeleton_in_the_shape_of_the_table(client, clean_db) -> None:
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     html = client.get("/domains").text
     assert '<template id="domains-skeleton">' in html
     assert html.count("drow--skeleton") == 14
@@ -240,5 +254,5 @@ STATE_PAGES = ("/", "/overview", "/domains", "/sources", "/tls", "/settings", "/
 @pytest.mark.parametrize("path", STATE_PAGES)
 def test_every_page_renders_with_setup_complete_and_nothing_else(client, clean_db, path) -> None:
     """A real deployment minutes after the wizard: no domains synced yet, no runs."""
-    _complete_setup(clean_db)
+    _complete_setup(client, clean_db)
     assert client.get(path).status_code == 200

@@ -40,6 +40,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("scheduler", help="Run the ingestion and domain-sync scheduler.")
     sub.add_parser("sync-domains", help="Pull verified domains and re-check their DNS now.")
     sub.add_parser("retention", help="Roll up and delete report data past its retention now.")
+    sub.add_parser("migrate", help="Apply database migrations (alembic upgrade head).")
+    sub.add_parser(
+        "reset-setup",
+        help="Reopen the setup wizard at the credentials step. Keeps the admin and all data.",
+    )
 
     seed = sub.add_parser("seed", help="Load sample data.")
     seed.add_argument(
@@ -66,12 +71,49 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _migrate() -> int:
+    """``alembic upgrade head`` without needing the alembic CLI or a cwd.
+
+    Also run by ``rua serve`` on start, so `docker compose up` on a fresh
+    volume produces a working instance rather than a 503 and a README step.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    from rua.paths import alembic_ini
+
+    command.upgrade(Config(str(alembic_ini())), "head")
+    return 0
+
+
+def _reset_setup() -> int:
+    from rua.config import get_settings
+    from rua.db import session_scope
+    from rua.logging import configure_logging
+    from rua.wizard import reset_setup
+
+    configure_logging(get_settings().log_level)
+    with session_scope() as session:
+        reset_setup(session)
+    print(
+        "Setup reopened at the credentials step. The admin account, domains and reports "
+        "are kept; open the dashboard URL to re-enter the Graph credentials."
+    )
+    return 0
+
+
 def _serve(host: str, port: int, reload: bool) -> int:
     import uvicorn
 
     from rua.config import get_settings
+    from rua.logging import configure_logging, get_logger
 
     settings = get_settings()
+    configure_logging(settings.log_level)
+    try:
+        _migrate()
+    except Exception as exc:  # the server still starts; /healthz reports the database
+        get_logger("rua.serve").error("migration_failed", error_type=type(exc).__name__)
     uvicorn.run(
         "rua.main:app",
         host=host,
@@ -295,6 +337,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _scheduler()
     if args.command == "retention":
         return _retention_now()
+    if args.command == "migrate":
+        return _migrate()
+    if args.command == "reset-setup":
+        return _reset_setup()
     if args.command == "sync-domains":
         return _sync_domains_now()
     if args.command == "seed":

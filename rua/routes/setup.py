@@ -271,6 +271,9 @@ def setup_submit(
             elif step == wizard.LAST_STEP:
                 try:
                     wizard.complete_setup(session)
+                    # The operator who just proved the account exists is signed in;
+                    # bouncing them to the login form would be absurd.
+                    request.session["admin_id"] = 1
                     return RedirectResponse("/", status_code=303)
                 except wizard.SetupIncomplete as exc:
                     error = str(exc)

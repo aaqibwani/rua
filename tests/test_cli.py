@@ -46,7 +46,7 @@ def test_no_command_is_an_error() -> None:
 
 def test_unknown_command_is_an_error() -> None:
     with pytest.raises(SystemExit) as exc:
-        _build_parser().parse_args(["migrate"])
+        _build_parser().parse_args(["frobnicate"])
     assert exc.value.code == 2
 
 

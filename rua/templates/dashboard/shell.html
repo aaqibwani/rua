@@ -10,6 +10,12 @@
     <a class="hdr__link" href="{{ url_for('setup_root') }}">Back to setup</a>
   {% endif %}
   <a class="hdr__link{% if tab == 'settings' %} hdr__link--current{% endif %}" href="/settings?days={{ win.days }}">Settings</a>
+  {% if signed_in %}
+    <form method="post" action="/logout" class="hdr__form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="hdr__link hdr__button" type="submit">Sign out</button>
+    </form>
+  {% endif %}
   <div class="ingest-pill" data-tone="{{ pill.tone }}">
     <span class="ingest-pill__dot" aria-hidden="true"></span>
     <span>{{ pill.text }}</span>

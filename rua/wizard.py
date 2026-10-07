@@ -348,6 +348,33 @@ def _record(
 # ─── Completion ──────────────────────────────────────────────────────────────
 
 
+def reset_setup(session: Session) -> None:
+    """Reopen the wizard at the credentials step. For `rua reset-setup`.
+
+    The only way back into the wizard once it has sealed, and deliberately a
+    CLI on the host rather than a button: it exists for SECRET_KEY rotation
+    (which makes the stored client secret undecryptable) and for a tenant
+    move. The administrator account, the domains and every report are kept;
+    the credentials, both verification verdicts and the completion flag go, so
+    the PINNED checks run again before ingestion resumes.
+    """
+    for key in (
+        store.GRAPH_TENANT_ID,
+        store.GRAPH_CLIENT_ID,
+        store.GRAPH_CLIENT_SECRET,
+        store.VERIFY_GRAPH_OK,
+        store.VERIFY_GRAPH_AT,
+        store.VERIFY_GRAPH_FACTS,
+        store.VERIFY_MAILBOX_OK,
+        store.VERIFY_MAILBOX_AT,
+        store.VERIFY_MAILBOX_FACTS,
+    ):
+        store.delete(session, key)
+    store.set_bool(session, store.SETUP_COMPLETE, False)
+    store.set_int(session, store.SETUP_STEP, 3)
+    log.info("setup_reset")
+
+
 class SetupIncomplete(RuntimeError):
     """Completion was attempted while a precondition was unmet."""
 

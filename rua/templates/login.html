@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Rua{% endblock %}
+{% block subtitle %}Sign in{% endblock %}
+
+{% block content %}
+<div class="wizard" style="grid-template-columns: minmax(0, 1fr); max-width: 520px;">
+  <section class="card">
+    <div class="card__head">
+      <div class="card__kicker">Local account</div>
+      <h1 class="card__title">Sign in to Rua</h1>
+      <div class="card__blurb">The administrator account created during setup. There is no
+        password reset; the account is a break-glass credential, and real access control belongs
+        in front of this deployment.</div>
+    </div>
+    <form method="post" action="/login" class="card__body">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="{{ next }}">
+      {% if error %}<div class="alert alert--error" role="alert" style="margin-bottom: 16px;">{{ error }}</div>{% endif %}
+      <div class="stack">
+        <div>
+          <label class="field__label" for="email">Email</label>
+          <input id="email" name="email" type="email" required autocomplete="username" value="{{ email or '' }}">
+        </div>
+        <div>
+          <label class="field__label" for="password">Password</label>
+          <input id="password" name="password" type="password" required autocomplete="current-password">
+        </div>
+        <div class="row">
+          <button class="btn btn--contained" type="submit">Sign in</button>
+        </div>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

@@ -2,8 +2,10 @@
 
 ## Reporting a vulnerability
 
-Email **security@your-org.example** with enough detail to reproduce. Please do not open a
-public issue for anything exploitable.
+Use GitHub's private vulnerability reporting on this repository: **Security → Report a
+vulnerability** at <https://github.com/aaqibwani/rua/security/advisories/new>. It reaches the
+maintainer only. Include enough detail to reproduce. Please do not open a public issue for
+anything exploitable.
 
 Expect an acknowledgement within 3 working days and an assessment within 10. If you have a
 disclosure deadline, say so in the first message and we will work to it.
@@ -21,8 +23,8 @@ In scope:
 
 Out of scope:
 
-- Missing rate limiting on the local login. Documented, deliberate, and the reason the
-  README tells you to put Rua behind a proxy.
+- Missing rate limiting, lockout or password reset on the local login. Documented,
+  deliberate, and the reason the README tells you to put Rua behind a proxy.
 - Findings that require an attacker to already hold `SECRET_KEY` or database credentials.
 - Denial of service by sending very large volumes of reports to your own mailbox.
 

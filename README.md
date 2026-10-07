@@ -29,7 +29,8 @@ docker compose up -d
 
 Open <http://localhost:8080> and follow the first-run wizard. It creates the local admin
 account, walks through the Entra app registration, and verifies both the Graph connection
-and the report mailbox before it lets you finish.
+and the report mailbox before it lets you finish. Database migrations run when the API
+starts, so a fresh volume comes up ready.
 
 Most of your posture is readable from DNS immediately. Volume, pass rates and TLS results
 appear as aggregate reports arrive, usually within 24 hours.
@@ -39,7 +40,8 @@ appear as aggregate reports arrive, usually within 24 hours.
 - A Microsoft 365 tenant.
 - A shared mailbox **already receiving** your DMARC aggregate reports — that is, it is the
   address in your domains' `rua=` tags. Rua does not change your DNS.
-- Somewhere to run a container and a PostgreSQL 15+ database.
+- Somewhere to run a container. PostgreSQL 16 is bundled in the Compose file; any
+  PostgreSQL 15 or later works.
 - Exchange Online PowerShell access, once, to scope the app to that one mailbox.
 
 ## Permissions, and why they are narrow
@@ -130,7 +132,7 @@ encrypted with `SECRET_KEY`; they never live in `.env`.
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | — | Required |
-| `SECRET_KEY` | — | Required. Encrypts stored credentials. Rotating it invalidates them |
+| `SECRET_KEY` | — | Required. Encrypts stored credentials and signs sessions. Rotating it invalidates both; run `rua reset-setup` afterwards |
 | `BASE_URL` | `http://localhost:8080` | External URL, used for generated links |
 | `INGEST_INTERVAL_MINUTES` | `60` | Mailbox poll interval |
 | `DOMAIN_SYNC_HOUR` | `3` | UTC hour for the daily domain and DNS re-check. `rua sync-domains` runs it on demand |
@@ -230,10 +232,11 @@ Rua never changes the policy for you. The verdict is advice; the DNS change is y
 
 ## Security
 
-Rua has no rate limiting and no brute-force protection on the local login. **Put it behind
-a TLS-terminating proxy and, ideally, an identity-aware proxy or a VPN.** The local admin
-account exists so a fresh deployment is not claimable by the first visitor; it is not a
-substitute for access control.
+Once setup completes, every page and API path requires the administrator's session; the
+login is the account created in the wizard's first step. Rua has no rate limiting and no
+brute-force protection on that login. **Put it behind a TLS-terminating proxy and, ideally,
+an identity-aware proxy or a VPN.** The local admin account exists so a fresh deployment is
+not claimable by the first visitor; it is not a substitute for access control.
 
 DMARC aggregate reports contain sending IP addresses. Depending on your jurisdiction those
 may be personal data — set `RETENTION_RAW_DAYS` to whatever your policy requires rather
@@ -243,8 +246,14 @@ Vulnerabilities: see [SECURITY.md](SECURITY.md). Do not open a public issue.
 
 ## Documentation
 
-Full docs cover deployment, the Entra registration step by step, the DNS records only you
-can change, retention and sizing, and troubleshooting.
+In [`docs/`](docs/README.md): [deployment](docs/deploy.md), the
+[Entra registration](docs/entra-registration.md) step by step, the
+[DNS records only you can change](docs/dns-records.md), every
+[configuration variable and command](docs/configuration.md),
+[retention and sizing](docs/retention-and-sizing.md),
+[troubleshooting](docs/troubleshooting.md), and
+[security and privacy](docs/security-and-privacy.md). Releases are in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

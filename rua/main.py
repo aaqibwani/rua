@@ -22,7 +22,7 @@ from rua.db import check_connection
 from rua.logging import configure_logging, get_logger
 from rua.middleware import SetupGateMiddleware
 from rua.paths import STATIC_DIR
-from rua.routes import pages_router, setup_router
+from rua.routes import auth_router, pages_router, setup_router
 from rua.routes.pages import render_error
 from rua.security import SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, session_secret
 
@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(ops_router)
     app.include_router(pages_router)
     app.include_router(setup_router)
+    app.include_router(auth_router)
     app.include_router(api_router)
 
     # Unhandled exceptions become the spec's error state rather than a bare 500.

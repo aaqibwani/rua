@@ -1,15 +1,17 @@
 """Request middleware.
 
-One job today: make the first-run wizard unavoidable before setup, and
-unreachable after it.
+Two jobs: make the first-run wizard unavoidable before setup and unreachable
+after it, and require the administrator's session for everything once setup
+is complete.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from urllib.parse import quote
 
 from fastapi import Request, Response
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from rua.db import session_scope
@@ -22,6 +24,9 @@ log = get_logger(__name__)
 # setup, or the container healthcheck fails a correctly-deployed instance and
 # Compose restarts it in a loop the operator cannot escape.
 EXEMPT_PATHS = frozenset({"/healthz", "/openapi.json", "/favicon.ico"})
+# Reachable after setup without a session: the login itself.
+AUTH_PATHS = frozenset({"/login", "/logout"})
+SESSION_USER_KEY = "admin_id"
 EXEMPT_PREFIXES = ("/static",)
 
 
@@ -83,8 +88,15 @@ class SetupGateMiddleware(BaseHTTPMiddleware):
         if complete:
             if in_wizard:
                 # PINNED: the wizard cannot be re-entered to reconfigure ingestion
-                # behind the checks. Credential changes belong in Settings.
+                # behind the checks. `rua reset-setup` is the only way back in.
                 return RedirectResponse("/", status_code=303)
+            if path not in AUTH_PATHS and request.session.get(SESSION_USER_KEY) != 1:
+                if path.startswith("/api/"):
+                    return JSONResponse({"detail": "Sign in required"}, status_code=401)
+                target = request.url.path
+                if request.url.query:
+                    target += "?" + request.url.query
+                return RedirectResponse("/login?next=" + quote(target, safe=""), status_code=303)
         elif not demo and not in_wizard:
             return RedirectResponse("/setup", status_code=303)
         # Demo mode with setup unfinished: both the dashboard and the wizard stay
