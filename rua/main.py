@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from rua import __version__
+from rua.api import router as api_router
 from rua.config import get_settings
 from rua.db import check_connection, get_session
 from rua.logging import configure_logging, get_logger
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(ops_router)
     app.include_router(home_router)
     app.include_router(setup_router)
+    app.include_router(api_router)
 
     # Order matters: middleware added last runs first, so the session must be
     # available by the time the setup gate looks at the request.

@@ -56,6 +56,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_DEMO_MAILBOX,
         help="Mailbox the demo rua= tags point at (default: %(default)s).",
     )
+    seed.add_argument(
+        "--domains-only",
+        action="store_true",
+        help="Seed the 60 domains but no demo reports (volume, sources, TLS results).",
+    )
 
     return parser
 
@@ -202,7 +207,7 @@ def _scheduler() -> int:
     return 0
 
 
-def _seed(demo: bool, tenant_prefix: str, mailbox: str) -> int:
+def _seed(demo: bool, tenant_prefix: str, mailbox: str, domains_only: bool = False) -> int:
     from rua.config import get_settings
     from rua.db import session_scope
     from rua.logging import configure_logging, get_logger
@@ -219,11 +224,19 @@ def _seed(demo: bool, tenant_prefix: str, mailbox: str) -> int:
     configure_logging(get_settings().log_level)
     log = get_logger("rua.seed")
 
+    from rua.seed_reports import seed_demo_reports
+
     with session_scope() as session:
         created, updated = seed_demo(session, tenant_prefix=tenant_prefix, mailbox=mailbox)
+        reports = tls = 0
+        if not domains_only:
+            reports, tls = seed_demo_reports(session, tenant_prefix=tenant_prefix, mailbox=mailbox)
 
-    log.info("seed_demo_written", created=created, updated=updated)
-    print(f"Seeded demo data: {created} created, {updated} updated.")
+    log.info("seed_demo_written", created=created, updated=updated, reports=reports, tls=tls)
+    print(
+        f"Seeded demo data: {created} domains created, {updated} updated; "
+        f"{reports} aggregate reports and {tls} TLS reports over the last 90 days."
+    )
     return 0
 
 
@@ -238,7 +251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "sync-domains":
         return _sync_domains_now()
     if args.command == "seed":
-        return _seed(args.demo, args.tenant_prefix, args.mailbox)
+        return _seed(args.demo, args.tenant_prefix, args.mailbox, args.domains_only)
 
     # argparse's required=True makes this unreachable; kept so the function has a
     # total return rather than an implicit None.

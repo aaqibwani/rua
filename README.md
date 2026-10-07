@@ -139,6 +139,11 @@ encrypted with `SECRET_KEY`; they never live in `.env`.
 | `ALERT_WEBHOOK_URL` | unset | Teams or Slack incoming webhook. Unset means no alerting |
 | `LOG_LEVEL` | `INFO` | Structured JSON to stdout |
 
+`rua seed --demo` loads a deterministic 60-domain tenant with 90 days of synthetic reports,
+for screenshots and for looking around before your own reports arrive. `--domains-only`
+skips the reports. Demo report ids start with `demo:`; re-running replaces them and leaves
+real reports alone.
+
 ## How posture is read
 
 Everything in the Domains table except volume comes from public DNS, checked daily and on
@@ -154,6 +159,54 @@ choices are worth knowing about:
   The next clean run corrects it.
 - **Two DMARC records, or two SPF records, read as `not configured`.** That is what receivers do
   (RFC 7489 §6.6.3, RFC 7208 §3.2), so showing anything else would overstate the protection.
+
+## The API
+
+Everything the screens show comes from six JSON endpoints under `/api`, and the UI has no
+data of its own. They take `?days=7|14|30|90` — the range picker's four values and nothing
+else, because the time window is global — and default to 30.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/overview/summary` | Metric cards, ingestion status, the readiness callout |
+| `GET /api/overview/trend` | One point per day: volume and aligned-pass rate |
+| `GET /api/sources` | Who is sending as you, volume descending; `&domain=` narrows it |
+| `GET /api/domains` | Every domain's posture with window volume, pass rate and readiness |
+| `GET /api/domains/{name}` | One domain, plus its sources and TLS results |
+| `GET /api/tls/summary` | TLS-RPT success rate, failure types, reporting organisations |
+
+Until the first report has been ingested, every report-derived figure — `volume`,
+`pass_rate`, `readiness`, the TLS rates — is `null`. Not zero. The posture fields are filled
+in from DNS regardless, which is the half of the product that works on day one. Once reports
+exist, a domain with nothing in the window reports `volume: 0`, which is a real zero.
+
+## The readiness score
+
+Readiness answers one question: if this domain moved to `p=reject` today, what share of its
+legitimate mail would still be delivered? It is the number someone will act on before
+changing a live policy, so it is worth knowing exactly what it is.
+
+Every message in the window is one of three things:
+
+- **Aligned pass** — SPF or DKIM aligned. Only your infrastructure can align, so this is
+  legitimate mail whoever sent it.
+- **Failing, known sender** — not aligned, but from a sender you have classified on the
+  Sources screen. A misconfigured service. Fixable, and lost under `p=reject`.
+- **Failing, unclassified sender** — not aligned, and nobody has said what it is. An
+  unknown legitimate service or an attacker; the data cannot tell you which.
+
+The percentage is `aligned pass ÷ (aligned pass + failing known)`. Unclassified volume is
+deliberately kept out of it and shown beside it instead, because folding it in either
+direction lies. It does, however, gate the verdict: a domain is **ready** only when the window
+holds at least 1,000 messages, the score is 98% or better, and under 1% of total volume failed
+from unclassified senders. Below 1,000 messages no verdict is offered at all — ten passing
+messages is not evidence.
+
+**This formula is a starting point and is flagged for review.** The thresholds were chosen
+against the demo tenant, not real data. They live as three constants at the top of
+`rua/readiness.py`, and the docstring there is the full argument.
+
+Rua never changes the policy for you. The verdict is advice; the DNS change is yours.
 
 ## Security
 
