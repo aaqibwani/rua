@@ -67,5 +67,9 @@ select = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tests/ is not a package, so `from tests.test_posture import ...` only works
+# when the repo root is importable. Locally the editable install provides that;
+# CI installs the package non-editable and does not, so make it explicit.
+pythonpath = ["."]
 asyncio_mode = "auto"
 filterwarnings = ["error::DeprecationWarning:rua.*"]
